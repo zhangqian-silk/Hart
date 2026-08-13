@@ -1,1 +1,71 @@
-# Hart
+# Hart 桌游
+
+在线桌游合集，参考 [game.hullqin.cn](https://game.hullqin.cn/) 的产品形态，支持在线联机对战。
+
+内置四款游戏：
+
+| 游戏 | 人数 | 主题色 | 说明 |
+|---|---|---|---|
+| 五子棋 | 2 人 | 琥珀 | 15×15 黑白对弈，五连即胜；支持本地双人 |
+| 斗地主 | 3 人 | 蓝 | 叫分抢地主，完整牌型与压牌规则 |
+| 一夜狼 | 3–10 人 | 红 | 一夜身份推理，夜晚行动 + 白天投票 |
+| 阿瓦隆 | 5–10 人 | 紫 | 任务阵营对抗，梅林/刺客终局 |
+
+## 技术栈
+
+- **monorepo**：pnpm workspaces
+- `packages/common`：纯 TS 游戏逻辑（单一事实来源，服务端/客户端共享，vitest 单测）
+- `packages/server`：Node + `ws` 权威服务器（房间、座位、准备、聊天、per-player 视图）
+- `packages/client`：React 18 + Vite + Tailwind + Zustand
+
+核心设计：游戏实现 `GameDefinition` 契约（`start` / `apply` / `view` / `turn` / `result`），
+服务器权威运行，按玩家视角下发视图（隐藏信息只在服务端），客户端只渲染 + 上报动作。
+详见 [docs/DESIGN.md](docs/DESIGN.md)。
+
+## 快速开始
+
+```bash
+pnpm install
+pnpm dev          # 同时启动 server(:8787) 与 client(:5173)
+```
+
+打开 http://localhost:5173 ，输入昵称，创建房间或输入房间号加入。
+
+### 本地试玩（不开服务器也能调游戏 UI）
+
+- http://localhost:5173/local/wuziqi?players=2
+- http://localhost:5173/local/doudizhu?players=3
+- http://localhost:5173/local/yiyelang?players=4
+- http://localhost:5173/local/avalon?players=5
+
+页面顶部可切换"视角"，模拟多名玩家。
+
+## 测试
+
+```bash
+pnpm test                       # common 单测（82 个用例）
+pnpm -r typecheck               # 三个包类型检查
+pnpm --filter @hart/client build
+
+# 联机 E2E（先启动 server）
+pnpm --filter @hart/server start
+pnpm --filter @hart/server exec tsx scripts/e2e.ts
+```
+
+## 目录
+
+```
+packages/
+  common/src/
+    framework.ts        # GameDefinition 契约 + 注册中心 + LocalHost
+    protocol.ts         # WebSocket 消息协议
+    games/<id>/         # 四款游戏逻辑 + 单测
+  server/src/
+    room.ts / host.ts / session.ts / index.ts
+  client/src/
+    net/ store/ ui/ pages/ games/<id>/
+docs/
+  DESIGN.md             # 总体设计与模块依赖
+  REFERENCE_UI.md       # 参考站调研
+  screenshots/          # 实现截图
+```
