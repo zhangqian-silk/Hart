@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { AgentSeatInfo } from '@hart/common';
 
 export function Avatar({ name, color, size = 40 }: { name: string; color?: string; size?: number }) {
   const hue = color ?? `hsl(${(name.charCodeAt(0) * 37) % 360} 70% 55%)`;
@@ -23,6 +24,7 @@ export function Seat({
   isHost,
   online,
   active,
+  agent,
   children,
 }: {
   name?: string;
@@ -30,6 +32,8 @@ export function Seat({
   isHost?: boolean;
   online?: boolean;
   active?: boolean;
+  /** AI 座位信息：存在时显示 🤖 头像、档案名、provider 标签与思考状态 */
+  agent?: AgentSeatInfo;
   children?: ReactNode;
 }) {
   return (
@@ -43,12 +47,21 @@ export function Seat({
           active ? 'ring-2 ring-amber-300 shadow-lg shadow-amber-300/30' : ''
         } ${!online && name ? 'opacity-40' : ''}`}
       >
-        {name ? (
+        {agent ? (
+          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-2xl shadow-lg shadow-indigo-500/30">
+            🤖
+          </div>
+        ) : name ? (
           <Avatar name={name} size={48} />
         ) : (
           <div className="w-12 h-12 rounded-full border-2 border-dashed border-white/20 flex items-center justify-center text-white/30 text-xl">
             +
           </div>
+        )}
+        {agent && (
+          <span className="absolute -top-1.5 -left-1.5 text-[10px] bg-indigo-500 text-white rounded-full px-1.5 py-0.5 font-bold leading-none">
+            AI
+          </span>
         )}
         {isHost && (
           <span className="absolute -top-1.5 -right-1.5 text-xs bg-amber-400 text-black rounded-full px-1.5 py-0.5 font-bold">
@@ -61,7 +74,24 @@ export function Seat({
           </span>
         )}
       </div>
-      <span className="text-xs text-slate-300 max-w-[72px] truncate">{name ?? '虚位以待'}</span>
+      <span className="text-xs text-slate-300 max-w-[72px] truncate">
+        {agent ? agent.profileName : name ?? '虚位以待'}
+      </span>
+      {agent && (
+        <span className="text-[10px] text-indigo-300/90 bg-indigo-500/15 border border-indigo-400/20 rounded-full px-1.5 py-px leading-tight">
+          {agent.kind}
+        </span>
+      )}
+      {agent?.status === 'thinking' ? (
+        <span className="flex items-center gap-1 text-[10px] text-amber-300 animate-pulse">
+          思考中
+          <span className="flex gap-0.5">
+            <span className="w-1 h-1 rounded-full bg-amber-300 animate-bounce" style={{ animationDelay: '0ms' }} />
+            <span className="w-1 h-1 rounded-full bg-amber-300 animate-bounce" style={{ animationDelay: '150ms' }} />
+            <span className="w-1 h-1 rounded-full bg-amber-300 animate-bounce" style={{ animationDelay: '300ms' }} />
+          </span>
+        </span>
+      ) : null}
       {children}
     </div>
   );

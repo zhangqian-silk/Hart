@@ -189,9 +189,14 @@ function PlayingCard({
   return (
     <div
       onClick={onClick}
-      className={`relative bg-white border shadow-md select-none flex flex-col ${SIZE_CLS[size]} ${
-        selected ? 'border-blue-400 ring-2 ring-blue-400/70' : 'border-slate-300'
-      } ${dimmed ? 'opacity-60' : ''} ${onClick ? 'cursor-pointer hover:-translate-y-1 transition-transform' : ''}`}
+      className={`relative bg-gradient-to-br from-white to-slate-50 border shadow-lg select-none flex flex-col transition-all duration-150 ${SIZE_CLS[size]} ${
+        selected ? 'border-blue-400 ring-2 ring-blue-400/70 -translate-y-2' : 'border-slate-300'
+      } ${dimmed ? 'opacity-60' : ''} ${onClick ? 'cursor-pointer hover:-translate-y-2 hover:shadow-xl' : ''}`}
+      style={{
+        boxShadow: selected
+          ? '0 8px 25px rgba(59,130,246,0.4), 0 2px 8px rgba(0,0,0,0.2)'
+          : '0 2px 8px rgba(0,0,0,0.15), 0 1px 3px rgba(0,0,0,0.1)',
+      }}
     >
       {joker ? (
         <>

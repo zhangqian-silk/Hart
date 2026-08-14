@@ -8,8 +8,12 @@ import { gameUIs } from '../games';
 export default function Room() {
   const room = useGame((s) => s.room);
   const me = useGame((s) => s.me);
+  const agentProfiles = useGame((s) => s.agentProfiles);
+  const addAgent = useGame((s) => s.addAgent);
+  const removeAgent = useGame((s) => s.removeAgent);
   const [chat, setChat] = useState('');
   const [showRules, setShowRules] = useState(false);
+  const [showAddAgent, setShowAddAgent] = useState(false);
   const chatRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -52,25 +56,34 @@ export default function Room() {
             规则
           </button>
           {isHost && !playing && (
-            <button
-              className="btn-primary px-4 py-1 text-xs"
-              onClick={() => net.send({ t: 'room.start' })}
-            >
-              开始游戏
-            </button>
+            <>
+              <button
+                className="btn-ghost px-3 py-1 text-xs"
+                onClick={() => setShowAddAgent(true)}
+              >
+                🤖 添加 AI
+              </button>
+              <button
+                className="btn-primary px-4 py-1 text-xs"
+                onClick={() => net.send({ t: 'room.start' })}
+              >
+                开始游戏
+              </button>
+            </>
           )}
         </div>
       </header>
 
       <div className="flex-1 flex flex-col lg:flex-row gap-4 p-4 max-w-7xl w-full mx-auto">
         {/* 主区 */}
-        <div className="flex-1 flex flex-col items-center justify-center py-6">
+        <div className="flex-1 flex flex-col items-center justify-center py-6 rounded-3xl felt-table min-h-[400px]">
           {!playing ? (
             <WaitingRoom
               seats={room.seats}
               me={me!}
               isHost={isHost}
               meta={meta}
+              onRemoveAgent={removeAgent}
             />
           ) : (
             <div className="relative w-full flex flex-col items-center">
@@ -120,6 +133,7 @@ export default function Room() {
                   ready={s.ready}
                   isHost={s.isHost}
                   online={s.online}
+                  agent={s.agent}
                 />
               ))}
             </div>
@@ -160,6 +174,30 @@ export default function Room() {
       <Modal open={showRules} onClose={() => setShowRules(false)} title={meta?.name ?? ''}>
         <pre className="whitespace-pre-wrap font-sans text-sm text-slate-300">{meta?.rules}</pre>
       </Modal>
+
+      <Modal open={showAddAgent} onClose={() => setShowAddAgent(false)} title="添加 AI 玩家">
+        <div className="space-y-2">
+          {agentProfiles.length === 0 && (
+            <p className="text-sm text-slate-400">暂无可用 AI 档案</p>
+          )}
+          {agentProfiles.map((p) => (
+            <button
+              key={p.id}
+              className="w-full text-left p-3 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 transition"
+              onClick={() => {
+                addAgent(undefined, p.id);
+                setShowAddAgent(false);
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🤖</span>
+                <span className="font-medium text-sm">{p.name}</span>
+              </div>
+              <p className="text-xs text-slate-400 mt-1">{p.persona}</p>
+            </button>
+          ))}
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -169,11 +207,13 @@ function WaitingRoom({
   me,
   isHost,
   meta,
+  onRemoveAgent,
 }: {
   seats: RoomView['seats'];
   me: string;
   isHost: boolean;
   meta?: GameMeta;
+  onRemoveAgent?: (seat: number) => void;
 }) {
   const mySeat = seats.find((s) => s.player?.id === me);
   return (
@@ -187,20 +227,34 @@ function WaitingRoom({
       </div>
       <div className="flex gap-3 flex-wrap justify-center max-w-xl">
         {seats.map((s) => (
-          <button
+          <div
             key={s.seat}
-            disabled={!!s.player && s.player.id !== me}
-            onClick={() => net.send({ t: 'room.sit', seat: s.seat })}
-            className="disabled:cursor-default"
+            className="relative"
           >
-            <Seat
-              name={s.player?.name}
-              ready={s.ready}
-              isHost={s.isHost}
-              online={s.online}
-              active={s.player?.id === me}
-            />
-          </button>
+            <button
+              disabled={!!s.player && s.player.id !== me}
+              onClick={() => net.send({ t: 'room.sit', seat: s.seat })}
+              className="disabled:cursor-default"
+            >
+              <Seat
+                name={s.player?.name}
+                ready={s.ready}
+                isHost={s.isHost}
+                online={s.online}
+                active={s.player?.id === me}
+                agent={s.agent}
+              />
+            </button>
+            {isHost && s.agent && (
+              <button
+                className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500/80 text-white text-xs flex items-center justify-center hover:bg-red-500"
+                onClick={() => onRemoveAgent?.(s.seat)}
+                title="移除 AI"
+              >
+                ×
+              </button>
+            )}
+          </div>
         ))}
       </div>
       <div className="flex gap-3">

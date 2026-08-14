@@ -558,6 +558,55 @@ export const avalon: GameDefinition<AvalonState, AvalonAction> = {
       reason: state.winReason ?? undefined,
     };
   },
+
+  legalActions(state: AvalonState, player: PlayerId): AvalonAction[] {
+    if (state.phase === 'finished') return [];
+    const ids = state.players.map((p) => p.id);
+    switch (state.phase) {
+      case 'propose': {
+        const leader = state.players[state.leaderIdx]!;
+        if (player !== leader.id) return [];
+        const need = CONFIG[state.players.length]!.missionSizes[state.mission]!;
+        // 枚举所有 C(n, need) 组合，限制 200 个
+        const combos: PlayerId[][] = [];
+        const combo = (start: number, picked: PlayerId[]) => {
+          if (combos.length >= 200) return;
+          if (picked.length === need) {
+            combos.push(picked.slice());
+            return;
+          }
+          for (let i = start; i < ids.length; i++) {
+            picked.push(ids[i]!);
+            combo(i + 1, picked);
+            picked.pop();
+          }
+        };
+        combo(0, []);
+        return combos.map((team): AvalonAction => ({ t: 'propose', team }));
+      }
+      case 'vote':
+        return player in state.votes
+          ? []
+          : [{ t: 'vote', approve: true }, { t: 'vote', approve: false }];
+      case 'quest': {
+        if (!state.questTeam?.includes(player) || player in state.questVotes) return [];
+        // 好人只能投成功；坏人可选成功或失败（与 apply 的校验一致）
+        const side = ROLE_INFO[state.roles[player]!]!.side;
+        return side === 'evil'
+          ? [{ t: 'quest', vote: 'success' }, { t: 'quest', vote: 'fail' }]
+          : [{ t: 'quest', vote: 'success' }];
+      }
+      case 'assassinate': {
+        const assassin = state.players.find((p) => state.roles[p.id] === 'assassin');
+        if (!assassin || player !== assassin.id) return [];
+        return ids
+          .filter((id) => id !== player)
+          .map((id): AvalonAction => ({ t: 'assassinate', target: id }));
+      }
+      default:
+        return [];
+    }
+  },
 };
 
 registerGame(avalon);

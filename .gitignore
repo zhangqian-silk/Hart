@@ -5,3 +5,6 @@ dist/
 packages/client/dist/
 packages/server/dist/
 packages/common/dist/
+# 生成的对局回放 / arena 评估数据（运行时产物，不入库）
+packages/server/data/
+packages/agent/data/

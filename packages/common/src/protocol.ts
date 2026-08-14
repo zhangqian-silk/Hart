@@ -7,6 +7,20 @@ export interface SeatInfo {
   ready: boolean;
   online: boolean;
   isHost: boolean;
+  /** AI 座位信息（该座位由 Agent 占据时存在） */
+  agent?: AgentSeatInfo;
+}
+
+/** AI 座位信息 */
+export interface AgentSeatInfo {
+  /** Agent 档案 id */
+  profileId: string;
+  /** Agent 展示名 */
+  profileName: string;
+  /** Provider 类型，如 scripted / http / claude-code / codex */
+  kind: string;
+  /** 思考状态（UI 展示用） */
+  status: 'idle' | 'thinking';
 }
 
 export interface ChatMsg {
@@ -48,10 +62,24 @@ export type ClientMsg =
   | { t: 'room.chat'; text: string }
   | { t: 'room.options'; options: GameOptions }
   | { t: 'room.start' }
-  | { t: 'game.action'; action: unknown };
+  | { t: 'game.action'; action: unknown }
+  /** 房主添加 AI 到指定座位（或自动选座） */
+  | { t: 'room.add_agent'; seat?: number; profileId: string; providerKind?: string }
+  /** 房主移除座位上的 AI */
+  | { t: 'room.remove_agent'; seat: number };
 
 export type ServerMsg =
   | { t: 'welcome'; you: PlayerId; name: string }
   | { t: 'room.state'; room: RoomView }
   | { t: 'room.event'; event: GameEvent }
+  /** 可选 Agent 档案列表（hello 后下发） */
+  | { t: 'agent.profiles'; profiles: AgentProfileInfo[] }
   | { t: 'error'; message: string };
+
+/** 可选 Agent 档案（大厅/房间添加 AI 用） */
+export interface AgentProfileInfo {
+  id: string;
+  name: string;
+  persona: string;
+  strategy: string;
+}

@@ -166,6 +166,17 @@ export const wuziqi: GameDefinition<WuziqiState, WuziqiAction> = {
     return { active: [state.current], phase: 'playing', hint: `请${color}方落子` };
   },
 
+  legalActions(state, player): WuziqiAction[] {
+    if (state.winner || player !== state.current) return [];
+    const actions: WuziqiAction[] = [];
+    for (let row = 0; row < WZQ_SIZE; row++) {
+      for (let col = 0; col < WZQ_SIZE; col++) {
+        if (state.board[row]![col] === 0) actions.push({ t: 'place', row, col });
+      }
+    }
+    return actions;
+  },
+
   result(state): GameResult | null {
     if (!state.winner) return null;
     return {

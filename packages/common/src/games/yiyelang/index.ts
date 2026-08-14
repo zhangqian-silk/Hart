@@ -668,6 +668,80 @@ export const yiyelang: GameDefinition<YylState, YylAction> = {
       reason: state.outcome.reason,
     };
   },
+
+  legalActions(state: YylState, player: PlayerId): YylAction[] {
+    if (state.phase === 'done') return [];
+    const others = state.players.filter((p) => p.id !== player).map((p) => p.id);
+    switch (state.phase) {
+      case 'night': {
+        if (!state.stepActors.includes(player)) return [];
+        const role = state.nightSteps[state.stepIndex];
+        if (!role) return [];
+        const actions: YylAction[] = [];
+        const nightChoices = (choice: NightChoice): YylAction => ({ t: 'night', choice });
+        switch (role) {
+          case 'werewolf': {
+            const hasPartner = state.players.some(
+              (p) => p.id !== player && state.originalRole[p.id] === 'werewolf',
+            );
+            if (hasPartner) {
+              actions.push(nightChoices({ kind: 'ack' }));
+            } else {
+              actions.push(nightChoices({ kind: 'skip' }));
+              for (let i = 0; i < 3; i++) actions.push(nightChoices({ kind: 'viewCenter', index: i }));
+            }
+            break;
+          }
+          case 'minion':
+          case 'mason':
+          case 'insomniac':
+            actions.push(nightChoices({ kind: 'ack' }));
+            break;
+          case 'seer':
+            actions.push(nightChoices({ kind: 'skip' }));
+            for (const p of others) actions.push(nightChoices({ kind: 'seerPlayer', player: p }));
+            actions.push(nightChoices({ kind: 'seerCenter', a: 0, b: 1 }));
+            actions.push(nightChoices({ kind: 'seerCenter', a: 0, b: 2 }));
+            actions.push(nightChoices({ kind: 'seerCenter', a: 1, b: 2 }));
+            break;
+          case 'robber':
+            actions.push(nightChoices({ kind: 'skip' }));
+            for (const p of others) actions.push(nightChoices({ kind: 'rob', player: p }));
+            break;
+          case 'troublemaker':
+            actions.push(nightChoices({ kind: 'skip' }));
+            for (let i = 0; i < others.length; i++) {
+              for (let j = i + 1; j < others.length; j++) {
+                actions.push(nightChoices({ kind: 'swap', a: others[i]!, b: others[j]! }));
+              }
+            }
+            break;
+          case 'drunk':
+            actions.push(nightChoices({ kind: 'skip' }));
+            for (let i = 0; i < 3; i++) actions.push(nightChoices({ kind: 'drink', index: i }));
+            break;
+          default:
+            break;
+        }
+        return actions;
+      }
+      case 'day':
+        return state.dayReady.includes(player) ? [] : [{ t: 'endDiscussion' }];
+      case 'voting':
+        return player in state.votes
+          ? []
+          : [
+              { t: 'vote', target: null },
+              ...others.map((p): YylAction => ({ t: 'vote', target: p })),
+            ];
+      case 'hunt':
+        return state.out.includes(player)
+          ? others.map((p): YylAction => ({ t: 'hunt', target: p }))
+          : [];
+      default:
+        return [];
+    }
+  },
 };
 
 registerGame(yiyelang);

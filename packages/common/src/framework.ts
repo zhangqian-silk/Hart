@@ -64,6 +64,12 @@ export interface GameDefinition<S, A> {
   /** 某玩家视角的视图（剥离秘密） */
   view(state: S, viewer: PlayerId): GameView;
 
+  /**
+   * 枚举某玩家当前所有合法动作（Agent 接入用，对应 V8 设计的 getAvailableActions）。
+   * 未实现时 Agent 需自行提议动作，由 apply 校验合法性。
+   */
+  legalActions?(state: S, player: PlayerId): A[];
+
   /** 当前行动者/阶段 */
   turn(state: S): TurnInfo;
 

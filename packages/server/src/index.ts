@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { WebSocketServer } from 'ws';
 import { listGames, type ClientMsg } from '@hart/common';
+import { BUILTIN_PROFILES } from '@hart/agent';
 import { Room, genCode } from './room.js';
 import { Session } from './session.js';
 
@@ -53,6 +54,15 @@ function handle(s: Session, msg: ClientMsg): void {
     case 'hello':
       s.name = msg.name.slice(0, 20) || `玩家${s.id}`;
       s.send({ t: 'welcome', you: s.id, name: s.name });
+      s.send({
+        t: 'agent.profiles',
+        profiles: BUILTIN_PROFILES.map((p) => ({
+          id: p.id,
+          name: p.name,
+          persona: p.persona,
+          strategy: p.strategy,
+        })),
+      });
       break;
     case 'room.create': {
       if (s.room) s.room.leave(s);
@@ -113,6 +123,18 @@ function handle(s: Session, msg: ClientMsg): void {
     case 'game.action':
       if (s.room) {
         const err = s.room.action(s, msg.action);
+        if (err) s.send({ t: 'error', message: err });
+      }
+      break;
+    case 'room.add_agent':
+      if (s.room) {
+        const err = s.room.addAgent(s, msg.seat, msg.profileId, msg.providerKind);
+        if (err) s.send({ t: 'error', message: err });
+      }
+      break;
+    case 'room.remove_agent':
+      if (s.room) {
+        const err = s.room.removeAgent(s, msg.seat);
         if (err) s.send({ t: 'error', message: err });
       }
       break;

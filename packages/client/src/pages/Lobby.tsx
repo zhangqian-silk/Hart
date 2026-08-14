@@ -11,6 +11,29 @@ const ICONS: Record<GameId, string> = {
   avalon: '🛡️',
 };
 
+const GAME_THEMES: Record<GameId, { gradient: string; glow: string; pattern: string }> = {
+  wuziqi: {
+    gradient: 'from-amber-500/20 to-orange-600/10',
+    glow: 'hover:shadow-amber-500/20',
+    pattern: 'radial-gradient(circle at 30% 30%, rgba(245,158,11,0.15), transparent 60%)',
+  },
+  doudizhu: {
+    gradient: 'from-blue-500/20 to-cyan-600/10',
+    glow: 'hover:shadow-blue-500/20',
+    pattern: 'radial-gradient(circle at 70% 30%, rgba(59,130,246,0.15), transparent 60%)',
+  },
+  yiyelang: {
+    gradient: 'from-red-500/20 to-rose-600/10',
+    glow: 'hover:shadow-red-500/20',
+    pattern: 'radial-gradient(circle at 30% 70%, rgba(239,68,68,0.15), transparent 60%)',
+  },
+  avalon: {
+    gradient: 'from-purple-500/20 to-violet-600/10',
+    glow: 'hover:shadow-purple-500/20',
+    pattern: 'radial-gradient(circle at 70% 70%, rgba(168,85,247,0.15), transparent 60%)',
+  },
+};
+
 export default function Lobby() {
   const GAMES = listGames();
   const name = useGame((s) => s.name);
@@ -99,50 +122,53 @@ export default function Lobby() {
         {games.map((g) => (
           <div
             key={g.id}
-            className="glass p-5 flex items-center gap-4 hover:bg-white/10 transition-colors group"
+            className={`relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br ${GAME_THEMES[g.id].gradient} backdrop-blur-md p-5 flex items-center gap-4 transition-all duration-300 hover:scale-[1.02] hover:border-white/20 hover:shadow-xl ${GAME_THEMES[g.id].glow} group cursor-pointer`}
+            onClick={() => createRoom(g.id)}
           >
             <div
-              className="w-14 h-14 rounded-2xl flex items-center justify-center text-3xl shrink-0"
-              style={{ background: `${g.theme}22`, boxShadow: `0 0 24px ${g.theme}44` }}
-            >
+              className="absolute inset-0 opacity-50"
+              style={{ background: GAME_THEMES[g.id].pattern }}
+            />
+            <div className="relative z-10 w-14 h-14 rounded-2xl flex items-center justify-center text-3xl shrink-0 bg-white/10 border border-white/10 group-hover:scale-110 transition-transform">
               {ICONS[g.id]}
             </div>
-            <div className="flex-1 min-w-0">
+            <div className="relative z-10 flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <span className="font-bold text-lg">{g.name}</span>
-                <span className="text-xs text-slate-400">
+                <span className="text-xs text-slate-400 bg-white/5 px-1.5 py-0.5 rounded-full">
                   {g.minPlayers === g.maxPlayers
                     ? `${g.minPlayers} 人`
                     : `${g.minPlayers}-${g.maxPlayers} 人`}
                 </span>
               </div>
-              <p className="text-xs text-slate-400 truncate">{g.tagline}</p>
+              <p className="text-xs text-slate-400 truncate mt-0.5">{g.tagline}</p>
             </div>
-              <div className="flex flex-col gap-1.5 shrink-0">
-                <button
-                  className="btn-primary px-3 py-1.5 text-xs"
-                  style={{ background: g.theme }}
-                  onClick={() => createRoom(g.id)}
-                >
-                  创建房间
-                </button>
-                <div className="flex gap-1.5">
-                  {g.id === 'wuziqi' && (
-                    <a
-                      href="/local/wuziqi?players=2"
-                      className="btn-ghost px-3 py-1 text-xs flex-1 justify-center"
-                    >
-                      本地对战
-                    </a>
-                  )}
-                  <button
-                    className="btn-ghost px-3 py-1 text-xs flex-1"
-                    onClick={() => setRulesGame(g)}
+            <div className="relative z-10 flex flex-col gap-1.5 shrink-0">
+              <button
+                className="btn-primary px-3 py-1.5 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                style={{ background: g.theme }}
+                onClick={(e) => { e.stopPropagation(); createRoom(g.id); }}
+              >
+                创建房间
+              </button>
+              <div className="flex gap-1.5">
+                {g.id === 'wuziqi' && (
+                  <a
+                    href="/local/wuziqi?players=2"
+                    className="btn-ghost px-3 py-1 text-xs flex-1 justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    规则
-                  </button>
-                </div>
+                    本地
+                  </a>
+                )}
+                <button
+                  className="btn-ghost px-3 py-1 text-xs flex-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={(e) => { e.stopPropagation(); setRulesGame(g); }}
+                >
+                  规则
+                </button>
               </div>
+            </div>
           </div>
         ))}
       </div>

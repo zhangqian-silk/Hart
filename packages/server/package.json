@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@hart/agent": "workspace:*",
     "@hart/common": "workspace:*",
     "ws": "^8.18.0"
   },

@@ -456,7 +456,168 @@ export const doudizhu: GameDefinition<DdzState, DdzAction> = {
             : ''),
     };
   },
+
+  legalActions(state: DdzState, player: PlayerId): DdzAction[] {
+    if (state.phase === 'finished') return [];
+    if (state.phase === 'bidding') {
+      const bidder = state.players[state.bidIndex];
+      if (!bidder || bidder.id !== player) return [];
+      const actions: DdzAction[] = [{ t: 'bid', score: 0 }];
+      for (let s = 1; s <= 3; s++) {
+        if (s > state.highestBid) actions.push({ t: 'bid', score: s as 1 | 2 | 3 });
+      }
+      return actions;
+    }
+    // playing
+    if (state.current !== player) return [];
+    const hand = state.hands[player];
+    if (!hand || hand.length === 0) return [];
+    const plays = enumeratePlays(hand);
+    const lead = state.lead;
+    const validPlays = lead
+      ? plays.filter((cards) => {
+          const info = identifyPlay(cards);
+          return info && canBeat(info, lead.info);
+        })
+      : plays;
+    const actions: DdzAction[] = validPlays.map((cards) => ({ t: 'play', cards }));
+    if (lead) actions.push({ t: 'pass' });
+    return actions;
+  },
 };
+
+/** 枚举手牌中所有合法牌型（用于 Agent legalActions） */
+function enumeratePlays(hand: Card[]): Card[][] {
+  const byRank = new Map<number, Card[]>();
+  for (const c of hand) {
+    const arr = byRank.get(c.rank) ?? [];
+    arr.push(c);
+    byRank.set(c.rank, arr);
+  }
+  const ranks = [...byRank.keys()].sort((a, b) => a - b);
+  const plays: Card[][] = [];
+  const seen = new Set<string>();
+  const add = (cards: Card[]) => {
+    const key = cards.map((c) => `${c.rank}-${c.suit}`).sort().join('|');
+    if (!seen.has(key)) {
+      seen.add(key);
+      plays.push(cards);
+    }
+  };
+
+  // 火箭
+  const sj = byRank.get(16);
+  const bj = byRank.get(17);
+  if (sj && bj) add([sj[0]!, bj[0]!]);
+
+  for (const r of ranks) {
+    const cards = byRank.get(r)!;
+    // 单/对/三/炸弹
+    if (cards.length >= 1) add([cards[0]!]);
+    if (cards.length >= 2) add([cards[0]!, cards[1]!]);
+    if (cards.length >= 3) add([cards[0]!, cards[1]!, cards[2]!]);
+    if (cards.length === 4) add([...cards]);
+  }
+
+  // 三带一/三带二
+  for (const r of ranks) {
+    const triple = byRank.get(r)!;
+    if (triple.length < 3) continue;
+    const t = triple.slice(0, 3);
+    for (const r2 of ranks) {
+      if (r2 === r) continue;
+      const single = byRank.get(r2)!;
+      if (single.length >= 1) add([...t, single[0]!]);
+      if (single.length >= 2) add([...t, single[0]!, single[1]!]);
+    }
+  }
+
+  // 顺子（3~A，≥5 张）
+  const straightRanks = ranks.filter((r) => r >= 3 && r <= 14);
+  for (let len = 5; len <= 12; len++) {
+    for (let i = 0; i + len <= straightRanks.length; i++) {
+      const seq = straightRanks.slice(i, i + len);
+      if (seq.length !== len) continue;
+      let consecutive = true;
+      for (let j = 1; j < len; j++) {
+        if (seq[j] !== seq[j - 1]! + 1) {
+          consecutive = false;
+          break;
+        }
+      }
+      if (!consecutive) continue;
+      add(seq.map((r) => byRank.get(r)![0]!));
+    }
+  }
+
+  // 连对（3~A，≥3 对）
+  const pairRanks = straightRanks.filter((r) => byRank.get(r)!.length >= 2);
+  for (let len = 3; len <= 10; len++) {
+    for (let i = 0; i + len <= pairRanks.length; i++) {
+      const seq = pairRanks.slice(i, i + len);
+      if (seq.length !== len) continue;
+      let consecutive = true;
+      for (let j = 1; j < len; j++) {
+        if (seq[j] !== seq[j - 1]! + 1) {
+          consecutive = false;
+          break;
+        }
+      }
+      if (!consecutive) continue;
+      add(seq.flatMap((r) => byRank.get(r)!.slice(0, 2)));
+    }
+  }
+
+  // 飞机（3~A，≥2 连三）+ 带翅膀
+  const tripleRanks = straightRanks.filter((r) => byRank.get(r)!.length >= 3);
+  for (let len = 2; len <= 6; len++) {
+    for (let i = 0; i + len <= tripleRanks.length; i++) {
+      const seq = tripleRanks.slice(i, i + len);
+      if (seq.length !== len) continue;
+      let consecutive = true;
+      for (let j = 1; j < len; j++) {
+        if (seq[j] !== seq[j - 1]! + 1) {
+          consecutive = false;
+          break;
+        }
+      }
+      if (!consecutive) continue;
+      const plane = seq.flatMap((r) => byRank.get(r)!.slice(0, 3));
+      add(plane);
+      // 飞机带单
+      const wingRanks = ranks.filter((r) => !seq.includes(r));
+      for (let w = 0; w < len && w < wingRanks.length; w++) {
+        add([...plane, byRank.get(wingRanks[w]!)![0]!]);
+      }
+      // 飞机带对
+      const pairWingRanks = wingRanks.filter((r) => byRank.get(r)!.length >= 2);
+      for (let w = 0; w < len && w < pairWingRanks.length; w++) {
+        add([...plane, ...byRank.get(pairWingRanks[w]!)!.slice(0, 2)]);
+      }
+    }
+  }
+
+  // 四带二
+  for (const r of ranks) {
+    const four = byRank.get(r)!;
+    if (four.length !== 4) continue;
+    for (const r2 of ranks) {
+      if (r2 === r) continue;
+      const single = byRank.get(r2)!;
+      if (single.length >= 2) add([...four, single[0]!, single[1]!]);
+      if (single.length >= 4) {
+        // 四带两对
+        for (const r3 of ranks) {
+          if (r3 === r || r3 <= r2) continue;
+          const pair2 = byRank.get(r3)!;
+          if (pair2.length >= 2) add([...four, ...single.slice(0, 2), ...pair2.slice(0, 2)]);
+        }
+      }
+    }
+  }
+
+  return plays;
+}
 
 /* ---------------- 动作处理 ---------------- */
 

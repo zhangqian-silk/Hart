@@ -15,6 +15,22 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
 
+  packages/agent:
+    dependencies:
+      '@hart/common':
+        specifier: workspace:*
+        version: link:../common
+    devDependencies:
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.12
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.1)
+
   packages/client:
     dependencies:
       '@hart/common':
@@ -66,6 +82,9 @@ importers:
 
   packages/server:
     dependencies:
+      '@hart/agent':
+        specifier: workspace:*
+        version: link:../agent
       '@hart/common':
         specifier: workspace:*
         version: link:../common
