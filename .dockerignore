@@ -1,0 +1,9 @@
+node_modules
+**/node_modules
+**/dist
+packages/*/data
+packages/server/data
+packages/agent/data
+.git
+*.log
+docs/screenshots
