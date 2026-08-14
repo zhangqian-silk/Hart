@@ -8,6 +8,8 @@
     "dev:server": "pnpm --filter @hart/server dev",
     "dev:client": "pnpm --filter @hart/client dev",
     "build": "pnpm --filter @hart/common build && pnpm --filter @hart/client build && pnpm --filter @hart/server build",
+    "start": "pnpm --filter @hart/server start",
+    "deploy:build": "pnpm --filter @hart/client build",
     "test": "pnpm --filter @hart/common test",
     "typecheck": "pnpm -r typecheck"
   },

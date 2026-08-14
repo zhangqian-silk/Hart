@@ -1,4 +1,8 @@
 import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { join, normalize, extname, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { listGames, type ClientMsg } from '@hart/common';
 import { BUILTIN_PROFILES } from '@hart/agent';
@@ -10,12 +14,61 @@ import '@hart/common/games';
 
 const PORT = Number(process.env.PORT ?? 8787);
 
+// 生产静态资源目录：优先环境变量，其次默认指向 client 构建产物
+const here = dirname(fileURLToPath(import.meta.url));
+const CLIENT_DIST =
+  process.env.CLIENT_DIST ?? join(here, '..', '..', 'client', 'dist');
+const SERVE_STATIC = existsSync(join(CLIENT_DIST, 'index.html'));
+
+const MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
+};
+
+/** 提供构建后的前端静态资源（SPA：未命中文件回退 index.html） */
+async function serveStatic(reqUrl: string, res: import('node:http').ServerResponse): Promise<void> {
+  const urlPath = decodeURIComponent(reqUrl.split('?')[0] ?? '/');
+  // 防目录穿越：规范化后必须仍在 dist 内
+  const rel = normalize(urlPath).replace(/^(\.\.[/\\])+/, '');
+  let filePath = join(CLIENT_DIST, rel === '/' ? 'index.html' : rel);
+  if (!filePath.startsWith(CLIENT_DIST)) filePath = join(CLIENT_DIST, 'index.html');
+  if (!existsSync(filePath) || extname(filePath) === '') {
+    filePath = join(CLIENT_DIST, 'index.html'); // SPA 回退
+  }
+  try {
+    const body = await readFile(filePath);
+    res.setHeader('content-type', MIME[extname(filePath)] ?? 'application/octet-stream');
+    res.end(body);
+  } catch {
+    res.statusCode = 404;
+    res.end('not found');
+  }
+}
+
 const rooms = new Map<string, Room>();
 
 const http = createServer((req, res) => {
   if (req.url === '/api/games') {
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify(listGames()));
+    return;
+  }
+  // 健康检查
+  if (req.url === '/healthz') {
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ ok: true, rooms: rooms.size }));
+    return;
+  }
+  // 生产：提供前端静态资源
+  if (SERVE_STATIC && req.method === 'GET') {
+    void serveStatic(req.url ?? '/', res);
     return;
   }
   res.statusCode = 404;
