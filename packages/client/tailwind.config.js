@@ -14,6 +14,15 @@ export default {
       fontFamily: {
         sans: ['"PingFang SC"', '"Microsoft YaHei"', 'system-ui', 'sans-serif'],
       },
+      boxShadow: {
+        'glow-indigo': '0 0 24px rgba(99,102,241,0.35)',
+      },
+      keyframes: {
+        'bounce-sm': {
+          '0%,100%': { transform: 'translateY(0)' },
+          '50%': { transform: 'translateY(-3px)' },
+        },
+      },
     },
   },
   plugins: [],

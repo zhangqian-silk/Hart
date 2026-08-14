@@ -202,20 +202,19 @@ function YiyelangUI({ view, turn, result, me, players, send }: GameUIProps) {
   };
 
   return (
-    <div className="w-full max-w-3xl flex flex-col items-center gap-5">
-      {/* 我的身份 */}
-      <div className="flex items-center gap-3">
-        <RoleCard role={myRole} size={56} />
-        <div>
-          <div className="text-sm text-slate-400">你的身份</div>
-          <div className="font-bold text-lg">{myMeta.emoji} {myMeta.name}</div>
+    <div className="w-full max-w-3xl flex flex-col gap-4">
+      {/* 身份 + 阶段：顶部信息条 */}
+      <div className="glass p-4 flex items-center gap-4">
+        <RoleCard role={myRole} size={54} />
+        <div className="min-w-0">
+          <div className="text-[11px] uppercase tracking-wide text-slate-500">你的身份</div>
+          <div className="font-bold text-lg leading-tight">{myMeta.emoji} {myMeta.name}</div>
           <div className="text-xs text-slate-500">{myMeta.team}</div>
         </div>
-      </div>
-
-      {/* 阶段提示 */}
-      <div className="text-center">
-        <div className="text-slate-200 font-medium">{turn.hint}</div>
+        <div className="ml-auto text-right">
+          <div className="text-[11px] uppercase tracking-wide text-slate-500">当前阶段</div>
+          <div className="text-slate-200 font-medium">{turn.hint}</div>
+        </div>
       </div>
 
       {/* 夜晚 */}

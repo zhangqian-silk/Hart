@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { GameId } from '@hart/common';
 import { registerGameUI, type GameUIProps } from '../types';
 import { Avatar, Badge } from '../../ui';
@@ -245,10 +245,25 @@ function HandFan({
   selected: ReadonlySet<string>;
   onToggle: (c: CardT) => void;
 }) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [avail, setAvail] = useState(680);
+  useLayoutEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setAvail(el.clientWidth));
+    ro.observe(el);
+    setAvail(el.clientWidth);
+    return () => ro.disconnect();
+  }, []);
   const n = cards.length;
   const mid = (n - 1) / 2;
+  const CARD_W = 58;
+  // 让整叠手牌宽度收敛到容器内（留 24px 边距）：card0 全宽 + 其余每张 step
+  const usable = Math.max(160, avail - 24);
+  const step = n > 1 ? Math.min(CARD_W - 6, (usable - CARD_W) / (n - 1)) : 0;
+  const overlap = step - CARD_W; // 负值即重叠量
   return (
-    <div className="flex justify-center items-end" style={{ minHeight: 104, maxWidth: '100%' }}>
+    <div ref={wrapRef} className="flex justify-center items-end w-full px-2 overflow-hidden" style={{ minHeight: 104 }}>
       {cards.map((card, i) => {
         const off = i - mid;
         const isSel = selected.has(cardKey(card));
@@ -259,7 +274,7 @@ function HandFan({
             key={cardKey(card)}
             className="shrink-0"
             style={{
-              marginLeft: i === 0 ? 0 : -26,
+              marginLeft: i === 0 ? 0 : overlap,
               transform,
               zIndex: isSel ? 30 : i,
               transformOrigin: '50% 130%',
@@ -305,7 +320,7 @@ function SeatPanel({
       <div className={`relative rounded-full p-0.5 ${p.current ? 'ring-2 ring-blue-300 shadow-lg shadow-blue-400/40' : ''}`}>
         <Avatar name={p.name} size={52} />
         {p.role && (
-          <span className={`absolute -bottom-1 left-1/2 -translate-x-1/2 text-[10px] px-1.5 py-px rounded-full font-bold ${
+          <span className={`absolute -bottom-1 left-1/2 -translate-x-1/2 text-[10px] px-1.5 py-px rounded-full font-bold whitespace-nowrap ${
             p.role === 'landlord' ? 'bg-amber-400 text-black' : 'bg-emerald-500/90 text-white'
           }`}>
             {p.role === 'landlord' ? '地主' : '农民'}
@@ -410,34 +425,35 @@ function DoudizhuUI({ view, turn, result, me, send }: GameUIProps) {
   const iWon = result ? result.winners.includes(me) : false;
 
   return (
-    <div className="w-full max-w-6xl select-none">
-      {/* 顶部状态 */}
-      <div className="text-center text-sm text-slate-300 h-6 mb-2">{result ? '' : hint}</div>
-
-      {/* 牌桌 */}
+    <div className="w-full max-w-6xl select-none flex flex-col gap-3">
+      {/* 牌桌（自适应高度，不裁剪手牌） */}
       <div
-        className="relative rounded-3xl overflow-hidden border border-white/10 shadow-2xl"
+        className="relative rounded-3xl border border-white/10 shadow-2xl flex flex-col"
         style={{
-          height: 600,
           background:
-            'radial-gradient(ellipse 90% 80% at 50% 35%, #16635a 0%, #0e4a44 45%, #082f2c 100%)',
+            'radial-gradient(ellipse 90% 80% at 50% 30%, #16635a 0%, #0e4a44 45%, #082f2c 100%)',
           boxShadow: 'inset 0 0 80px rgba(0,0,0,0.45), 0 24px 70px rgba(0,0,0,0.55)',
         }}
       >
-        {/* 对手 */}
-        <div className="absolute top-4 left-5 z-10">
-          {opponents[0] && (
-            <SeatPanel p={opponents[0]} trickCards={trickOf(opponents[0].id)} passed={passedSet.has(opponents[0].id)} />
-          )}
-        </div>
-        <div className="absolute top-4 right-5 z-10">
-          {opponents[1] && (
-            <SeatPanel p={opponents[1]} trickCards={trickOf(opponents[1].id)} passed={passedSet.has(opponents[1].id)} />
-          )}
+        {/* 顶部：状态提示 + 对手 */}
+        <div className="relative flex items-start justify-between gap-3 px-5 pt-4">
+          <div className="z-10">
+            {opponents[0] && (
+              <SeatPanel p={opponents[0]} trickCards={trickOf(opponents[0].id)} passed={passedSet.has(opponents[0].id)} />
+            )}
+          </div>
+          <div className="flex-1 text-center text-sm text-slate-200/90 pt-2 min-h-[1.5rem]">
+            {result ? '' : hint}
+          </div>
+          <div className="z-10">
+            {opponents[1] && (
+              <SeatPanel p={opponents[1]} trickCards={trickOf(opponents[1].id)} passed={passedSet.has(opponents[1].id)} />
+            )}
+          </div>
         </div>
 
         {/* 中央区域 */}
-        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-4">
+        <div className="flex-1 min-h-[190px] flex flex-col items-center justify-center px-4 py-4">
           {v.phase === 'bidding' && (
             <div className="flex flex-col items-center gap-3">
               <div className="text-slate-200/90 text-sm tracking-widest">叫 分 阶 段</div>
@@ -484,29 +500,29 @@ function DoudizhuUI({ view, turn, result, me, send }: GameUIProps) {
           )}
         </div>
 
-        {/* 我的座位信息（左下） */}
-        <div className="absolute bottom-3 left-5 z-10 flex items-center gap-2">
-          <div className={`relative rounded-full p-0.5 ${myPlayTurn ? 'ring-2 ring-blue-300 shadow-lg shadow-blue-400/40' : ''}`}>
-            <Avatar name={v.players.find((p) => p.id === me)?.name ?? '我'} size={44} />
-            {v.yourRole && (
-              <span className={`absolute -bottom-1 left-1/2 -translate-x-1/2 text-[10px] px-1.5 py-px rounded-full font-bold ${
-                v.yourRole === 'landlord' ? 'bg-amber-400 text-black' : 'bg-emerald-500/90 text-white'
-              }`}>
-                {v.yourRole === 'landlord' ? '地主' : '农民'}
+        {/* 底部：我的信息 + 按钮 + 手牌（独立区域，绝不裁剪） */}
+        <div className="relative flex flex-col items-center gap-2 px-4 pb-4">
+          {/* 我的座位信息（左侧浮标） */}
+          <div className="absolute left-5 bottom-4 z-10 flex items-center gap-2">
+            <div className={`relative rounded-full p-0.5 ${myPlayTurn ? 'ring-2 ring-blue-300 shadow-lg shadow-blue-400/40' : ''}`}>
+              <Avatar name={v.players.find((p) => p.id === me)?.name ?? '我'} size={44} />
+              {v.yourRole && (
+                <span className={`absolute -bottom-1 left-1/2 -translate-x-1/2 text-[10px] px-1.5 py-px rounded-full font-bold whitespace-nowrap ${
+                  v.yourRole === 'landlord' ? 'bg-amber-400 text-black' : 'bg-emerald-500/90 text-white'
+                }`}>
+                  {v.yourRole === 'landlord' ? '地主' : '农民'}
+                </span>
+              )}
+            </div>
+            <div className="hidden sm:flex flex-col gap-0.5">
+              <span className="text-xs text-slate-200">
+                {v.players.find((p) => p.id === me)?.name ?? '我'}（你）
               </span>
-            )}
+              <span className="text-[11px] text-slate-400">剩余 {myHand.length} 张</span>
+            </div>
           </div>
-          <div className="flex flex-col gap-0.5">
-            <span className="text-xs text-slate-200">
-              {v.players.find((p) => p.id === me)?.name ?? '我'}（你）
-            </span>
-            <span className="text-[11px] text-slate-400">剩余 {myHand.length} 张</span>
-          </div>
-        </div>
 
-        {/* 底部：按钮 + 手牌 */}
-        <div className="absolute bottom-0 left-0 right-0 flex flex-col items-center gap-1.5 pb-2 z-20">
-          <div className="h-9 flex items-center gap-2">
+          <div className="min-h-[2.25rem] flex items-center gap-2">
             {myBidTurn && (
               <>
                 {[1, 2, 3].map((score) => (

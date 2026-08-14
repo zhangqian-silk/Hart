@@ -70,9 +70,12 @@ export default function Lobby() {
   };
 
   return (
-    <div className="min-h-full flex flex-col items-center py-10 px-4">
+    <div className="min-h-full flex flex-col items-center py-10 sm:py-14 px-4">
       <header className="text-center mb-8">
-        <h1 className="text-4xl font-black tracking-wide mb-2">
+        <div className="inline-flex items-center gap-2 mb-3 text-[11px] tracking-widest uppercase text-indigo-300/80 bg-indigo-500/10 border border-indigo-400/20 rounded-full px-3 py-1">
+          🐴 在线桌游合集
+        </div>
+        <h1 className="text-5xl font-black tracking-tight mb-2">
           <span className="bg-gradient-to-r from-indigo-300 via-purple-300 to-pink-300 bg-clip-text text-transparent">
             Hart 桌游
           </span>
@@ -80,16 +83,20 @@ export default function Lobby() {
         <p className="text-slate-400 text-sm">聚会不用带道具，打开网页就能玩</p>
       </header>
 
-      <div className="glass px-4 py-3 flex items-center gap-3 mb-8 w-full max-w-md">
-        <input
-          className="input flex-1 bg-transparent border-0 focus:ring-0 px-1"
-          placeholder="输入你的昵称"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onBlur={() => name.trim() && hello()}
-          maxLength={12}
-        />
-        <div className="flex gap-2">
+      <div className="glass p-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 mb-8 w-full max-w-lg">
+        <div className="flex items-center gap-2 flex-1 px-2">
+          <span className="text-slate-500 text-sm shrink-0" aria-hidden>👤</span>
+          <input
+            className="flex-1 bg-transparent border-0 outline-none text-sm text-slate-100 placeholder:text-slate-500 py-2"
+            placeholder="输入你的昵称"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onBlur={() => name.trim() && hello()}
+            maxLength={12}
+            aria-label="昵称"
+          />
+        </div>
+        <div className="flex gap-2 shrink-0">
           <input
             className="input w-28 text-center uppercase tracking-widest"
             placeholder="房间号"
@@ -97,8 +104,9 @@ export default function Lobby() {
             onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
             onKeyDown={(e) => e.key === 'Enter' && joinRoom()}
             maxLength={4}
+            aria-label="房间号"
           />
-          <button className="btn-ghost" onClick={joinRoom}>
+          <button className="btn-primary px-5" onClick={joinRoom}>
             加入
           </button>
         </div>
@@ -108,8 +116,10 @@ export default function Lobby() {
         {[null, 2, 3, 4, 5, 6, 7, 8].map((n) => (
           <button
             key={n ?? 'all'}
-            className={`btn px-3 py-1 text-xs rounded-full ${
-              filter === n ? 'bg-indigo-500 text-white' : 'bg-white/5 text-slate-300'
+            className={`btn px-3.5 py-1 text-xs rounded-full ${
+              filter === n
+                ? 'bg-indigo-500 text-white shadow shadow-indigo-500/30'
+                : 'bg-white/5 text-slate-300 hover:bg-white/10'
             }`}
             onClick={() => setFilter(n)}
           >
@@ -118,56 +128,61 @@ export default function Lobby() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-2xl">
-        {games.map((g) => (
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-3xl">
+        {games.map((g, i) => (
           <div
             key={g.id}
-            className={`relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br ${GAME_THEMES[g.id].gradient} backdrop-blur-md p-5 flex items-center gap-4 transition-all duration-300 hover:scale-[1.02] hover:border-white/20 hover:shadow-xl ${GAME_THEMES[g.id].glow} group cursor-pointer`}
-            onClick={() => createRoom(g.id)}
+            className={`card-in relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br ${GAME_THEMES[g.id].gradient} backdrop-blur-md p-5 flex flex-col gap-4 transition-all duration-300 hover:-translate-y-0.5 hover:border-white/25 hover:shadow-xl ${GAME_THEMES[g.id].glow} group`}
+            style={{ animationDelay: `${i * 60}ms` }}
           >
             <div
-              className="absolute inset-0 opacity-50"
+              className="absolute inset-0 opacity-60 pointer-events-none"
               style={{ background: GAME_THEMES[g.id].pattern }}
             />
-            <div className="relative z-10 w-14 h-14 rounded-2xl flex items-center justify-center text-3xl shrink-0 bg-white/10 border border-white/10 group-hover:scale-110 transition-transform">
-              {ICONS[g.id]}
-            </div>
-            <div className="relative z-10 flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-lg">{g.name}</span>
-                <span className="text-xs text-slate-400 bg-white/5 px-1.5 py-0.5 rounded-full">
-                  {g.minPlayers === g.maxPlayers
-                    ? `${g.minPlayers} 人`
-                    : `${g.minPlayers}-${g.maxPlayers} 人`}
-                </span>
+            <div className="relative z-10 flex items-center gap-4">
+              <div
+                className="w-14 h-14 rounded-2xl flex items-center justify-center text-3xl shrink-0 bg-white/10 border border-white/15 group-hover:scale-105 transition-transform"
+                style={{ boxShadow: `0 6px 20px ${g.theme}22` }}
+              >
+                {ICONS[g.id]}
               </div>
-              <p className="text-xs text-slate-400 truncate mt-0.5">{g.tagline}</p>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-bold text-lg leading-tight">{g.name}</span>
+                  <span className="chip whitespace-nowrap text-[11px] py-0" style={{ color: g.theme }}>
+                    {g.minPlayers === g.maxPlayers
+                      ? `${g.minPlayers} 人`
+                      : `${g.minPlayers}-${g.maxPlayers} 人`}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 mt-1 line-clamp-2">{g.tagline}</p>
+              </div>
             </div>
-            <div className="relative z-10 flex flex-col gap-1.5 shrink-0">
+            <div className="relative z-10 flex gap-2">
               <button
-                className="btn-primary px-3 py-1.5 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-                style={{ background: g.theme }}
-                onClick={(e) => { e.stopPropagation(); createRoom(g.id); }}
+                className="btn-primary flex-1 py-2 text-sm"
+                style={{
+                  background: `linear-gradient(to bottom, ${g.theme}, ${g.theme}cc)`,
+                  boxShadow: `0 8px 20px ${g.theme}40`,
+                }}
+                onClick={() => createRoom(g.id)}
               >
                 创建房间
               </button>
-              <div className="flex gap-1.5">
-                {g.id === 'wuziqi' && (
-                  <a
-                    href="/local/wuziqi?players=2"
-                    className="btn-ghost px-3 py-1 text-xs flex-1 justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    本地
-                  </a>
-                )}
-                <button
-                  className="btn-ghost px-3 py-1 text-xs flex-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                  onClick={(e) => { e.stopPropagation(); setRulesGame(g); }}
+              {g.id === 'wuziqi' && (
+                <a
+                  href="/local/wuziqi?players=2"
+                  className="btn-ghost px-4 py-2 text-sm"
                 >
-                  规则
-                </button>
-              </div>
+                  本地
+                </a>
+              )}
+              <button
+                className="btn-ghost px-4 py-2 text-sm"
+                onClick={() => setRulesGame(g)}
+              >
+                规则
+              </button>
             </div>
           </div>
         ))}

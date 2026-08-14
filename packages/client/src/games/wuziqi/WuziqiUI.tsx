@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { registerGameUI, type GameUIProps } from '../types';
 import type { WuziqiView } from '@hart/common/games/wuziqi';
 
@@ -13,6 +13,17 @@ function WuziqiUI({ view, turn, result, me, send }: GameUIProps) {
   const v = view as unknown as WuziqiView;
   const myTurn = turn.active.includes(me) && !result;
   const [hover, setHover] = useState<{ r: number; c: number } | null>(null);
+  const boardWrapRef = useRef<HTMLDivElement>(null);
+  const [boardScale, setBoardScale] = useState(1);
+  useLayoutEffect(() => {
+    const el = boardWrapRef.current;
+    if (!el) return;
+    const update = () => setBoardScale(Math.min(1, el.clientWidth / BOARD_PX));
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    update();
+    return () => observer.disconnect();
+  }, []);
   const winSet = useMemo(
     () => new Set((v.winLine ?? []).map((p) => `${p.row},${p.col}`)),
     [v.winLine],
@@ -21,7 +32,7 @@ function WuziqiUI({ view, turn, result, me, send }: GameUIProps) {
   const myColor = v.youAre;
 
   return (
-    <div className="flex flex-col items-center gap-4">
+    <div className="w-full max-w-[456px] flex flex-col items-center gap-4">
       <div className="flex items-center gap-3 h-8">
         {result ? (
           <span
@@ -47,16 +58,19 @@ function WuziqiUI({ view, turn, result, me, send }: GameUIProps) {
         )}
       </div>
 
-      <div
-        className="relative rounded-2xl"
-        style={{
-          width: BOARD_PX,
-          height: BOARD_PX,
-          background: 'linear-gradient(135deg, #e0ac69, #c68e45)',
-          boxShadow: '0 24px 70px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.25)',
-        }}
-        onMouseLeave={() => setHover(null)}
-      >
+      <div ref={boardWrapRef} className="w-full max-w-[456px] min-h-0 aspect-square">
+        <div
+          className="relative rounded-2xl"
+          style={{
+            width: BOARD_PX,
+            height: BOARD_PX,
+            transform: `scale(${boardScale})`,
+            transformOrigin: 'top left',
+            background: 'linear-gradient(135deg, #e0ac69, #c68e45)',
+            boxShadow: '0 24px 70px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.25)',
+          }}
+          onMouseLeave={() => setHover(null)}
+        >
         {/* 网格线 */}
         <svg
           className="absolute"
@@ -135,6 +149,7 @@ function WuziqiUI({ view, turn, result, me, send }: GameUIProps) {
             );
           }),
         )}
+        </div>
       </div>
 
       <div className="flex gap-6 text-sm">

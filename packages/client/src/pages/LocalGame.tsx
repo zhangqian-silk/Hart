@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import {
   createLocalHost,
+  getGame,
   type GameId,
   type PlayerInfo,
 } from '@hart/common';
@@ -12,7 +13,12 @@ import { gameUIs } from '../games';
  */
 export default function LocalGame({ gameId }: { gameId: GameId }) {
   const players = useMemo<PlayerInfo[]>(() => {
-    const n = Number(new URLSearchParams(location.search).get('players') ?? 3);
+    const meta = getGame(gameId)?.meta;
+    const requested = Number(new URLSearchParams(location.search).get('players'));
+    const fallback = meta?.minPlayers ?? 3;
+    const n = Number.isFinite(requested) && requested > 0
+      ? Math.min(meta?.maxPlayers ?? requested, Math.max(meta?.minPlayers ?? 1, Math.floor(requested)))
+      : fallback;
     return Array.from({ length: n }, (_, i) => ({
       id: `p${i}`,
       name: `玩家${i + 1}`,
@@ -31,35 +37,37 @@ export default function LocalGame({ gameId }: { gameId: GameId }) {
 
   return (
     <div className="min-h-full flex flex-col">
-      <header className="flex items-center gap-3 px-4 py-3 border-b border-white/10">
+      <header className="flex flex-wrap items-center gap-2 px-3 sm:px-4 py-3 border-b border-white/10">
         <a href="/" className="btn-ghost px-3 py-1 text-xs">
           ← 大厅
         </a>
-        <span className="text-sm text-slate-400">本地试玩</span>
-        <div className="flex-1" />
-        <span className="text-xs text-slate-400 mr-2">视角：</span>
-        {players.map((p) => (
+        <span className="text-sm text-slate-400 shrink-0">本地试玩</span>
+        <div className="flex-1 min-w-4" />
+        <div className="basis-full sm:basis-auto flex items-center justify-end gap-1.5 flex-wrap">
+          <span className="text-xs text-slate-400 mr-1 shrink-0">视角：</span>
+          {players.map((p) => (
+            <button
+              key={p.id}
+              className={`btn px-2.5 sm:px-3 py-1 text-xs ${
+                viewer === p.id ? 'bg-indigo-500 text-white' : 'bg-white/5 text-slate-300'
+              }`}
+              onClick={() => setViewer(p.id)}
+            >
+              {p.name}
+            </button>
+          ))}
           <button
-            key={p.id}
-            className={`btn px-3 py-1 text-xs ${
-              viewer === p.id ? 'bg-indigo-500 text-white' : 'bg-white/5 text-slate-300'
-            }`}
-            onClick={() => setViewer(p.id)}
+            className="btn-ghost px-3 py-1 text-xs ml-1"
+            onClick={() => {
+              setHost(createLocalHost(gameId, players, {}, Math.random));
+              refresh();
+            }}
           >
-            {p.name}
+            重开
           </button>
-        ))}
-        <button
-          className="btn-ghost px-3 py-1 text-xs ml-2"
-          onClick={() => {
-            setHost(createLocalHost(gameId, players, {}, Math.random));
-            refresh();
-          }}
-        >
-          重开
-        </button>
+        </div>
       </header>
-      <main className="flex-1 flex items-center justify-center p-6">
+      <main className="flex-1 flex items-start justify-center p-6 overflow-auto">
         <GameUI
           view={host.view(viewer)}
           turn={host.turn()}
