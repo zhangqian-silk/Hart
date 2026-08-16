@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useGame } from '../store/game';
+import { adminHeaders, adminToken, setAdminToken } from '../net/admin';
 
 interface ProviderMeta {
   version?: string;
@@ -122,7 +123,7 @@ export default function System() {
     try {
       const res = await fetch('/api/system', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: adminHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(config),
       });
       const data = await res.json();
@@ -140,7 +141,7 @@ export default function System() {
     try {
       const res = await fetch('/api/system/refresh-meta', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: adminHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(kind ? { kind } : {}),
       });
       const data = await res.json();
@@ -179,6 +180,15 @@ export default function System() {
           </span>
         </h1>
         {dirty && <span className="text-xs text-amber-400">有未保存的修改</span>}
+        <input
+          type="password"
+          className="input w-36 text-xs py-1"
+          placeholder="管理员令牌（可选）"
+          defaultValue={adminToken()}
+          onChange={(e) => setAdminToken(e.target.value.trim())}
+          title="服务端设置 HART_ADMIN_TOKEN 后，保存需要此令牌"
+          autoComplete="off"
+        />
         <button className="btn-primary px-4 py-1.5 text-sm" onClick={save} disabled={!dirty}>
           保存
         </button>

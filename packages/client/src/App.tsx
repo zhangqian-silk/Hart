@@ -6,6 +6,7 @@ import Room from './pages/Room';
 import LocalGame from './pages/LocalGame';
 import Agents from './pages/Agents';
 import System from './pages/System';
+import MyModels from './pages/MyModels';
 import type { GameId } from '@hart/common';
 import { Toast } from './ui';
 
@@ -18,6 +19,7 @@ export default function App() {
   const localGame = localMatch?.[1] as GameId | undefined;
   const isAgents = location.pathname === '/agents';
   const isSystem = location.pathname === '/system';
+  const isModels = location.pathname === '/models';
 
   useEffect(() => {
     bindNet();
@@ -51,6 +53,8 @@ export default function App() {
         <Agents />
       ) : isSystem ? (
         <System />
+      ) : isModels ? (
+        <MyModels />
       ) : room ? (
         <Room />
       ) : (

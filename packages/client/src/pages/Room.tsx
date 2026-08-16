@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { getGame, type GameMeta, type RoomView } from '@hart/common';
+import { getGame, type GameMeta, type PlayerModel, type RoomView } from '@hart/common';
 import { net } from '../net/client';
 import { useGame } from '../store/game';
 import { Avatar, Badge, Modal, Seat } from '../ui';
@@ -8,6 +8,7 @@ import { gameUIs } from '../games';
 export default function Room() {
   const room = useGame((s) => s.room);
   const me = useGame((s) => s.me);
+  const pid = useGame((s) => s.pid);
   const setRoom = useGame((s) => s.setRoom);
   const agentProfiles = useGame((s) => s.agentProfiles);
   const addAgent = useGame((s) => s.addAgent);
@@ -15,11 +16,22 @@ export default function Room() {
   const [chat, setChat] = useState('');
   const [showRules, setShowRules] = useState(false);
   const [showAddAgent, setShowAddAgent] = useState(false);
+  const [myModels, setMyModels] = useState<PlayerModel[]>([]);
+  const [modelId, setModelId] = useState('');
   const chatRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight });
   }, [room?.chat.length]);
+
+  // 拉取我的模型（BYOK 添加 AI 用）
+  useEffect(() => {
+    if (!pid) return;
+    fetch(`/api/me/models?pid=${encodeURIComponent(pid)}`)
+      .then((r) => r.json())
+      .then((data: PlayerModel[]) => setMyModels(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, [pid]);
 
   if (!room) return null;
   const meta = getGame(room.game)?.meta as GameMeta | undefined;
@@ -27,6 +39,19 @@ export default function Room() {
   const isHost = room.host === me;
   const playing = room.status !== 'waiting';
   const GameUI = gameUIs[room.game];
+  // 非房主只能用自己的模型：强制选中第一个
+  const effectiveModelId = isHost ? modelId : (modelId || myModels[0]?.id || '');
+
+  const pickProfile = (profileId: string) => {
+    if (!isHost && !effectiveModelId) return;
+    addAgent(
+      undefined,
+      profileId,
+      undefined,
+      effectiveModelId && pid ? { pid, modelId: effectiveModelId } : undefined,
+    );
+    setShowAddAgent(false);
+  };
 
   const sendChat = () => {
     if (chat.trim()) {
@@ -79,6 +104,15 @@ export default function Room() {
                 开始游戏
               </button>
             </>
+          )}
+          {!isHost && !playing && myModels.length > 0 && (
+            <button
+              className="btn-ghost px-3 py-1 text-xs"
+              onClick={() => setShowAddAgent(true)}
+              title="使用你自己的模型添加 AI（额度由你的 Key 承担）"
+            >
+              🤖 添加 AI（我的模型）
+            </button>
           )}
         </div>
       </header>
@@ -195,18 +229,44 @@ export default function Room() {
       </Modal>
 
       <Modal open={showAddAgent} onClose={() => setShowAddAgent(false)} title="添加 AI 玩家">
-        <div className="space-y-2">
+        <div className="space-y-3">
+          <div>
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+              模型来源
+            </label>
+            <select
+              className="input w-full"
+              value={effectiveModelId}
+              onChange={(e) => setModelId(e.target.value)}
+            >
+              {isHost && <option value="">默认（Agent 自带配置）</option>}
+              {myModels.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}（{m.model || '未指定模型'}）
+                </option>
+              ))}
+            </select>
+            {!isHost && (
+              <p className="text-[11px] text-slate-500 mt-1">
+                非房主只能使用自己的模型添加 AI，额度由你的 Key 承担。
+              </p>
+            )}
+            {isHost && myModels.length === 0 && (
+              <p className="text-[11px] text-slate-500 mt-1">
+                想让 AI 用自己的 Key？去大厅的「🔑 我的模型」配置。
+              </p>
+            )}
+          </div>
+          <div className="h-px bg-white/10" />
           {agentProfiles.length === 0 && (
             <p className="text-sm text-slate-400">暂无可用 AI 档案</p>
           )}
           {agentProfiles.map((p) => (
             <button
               key={p.id}
-              className="w-full text-left p-3 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 transition"
-              onClick={() => {
-                addAgent(undefined, p.id);
-                setShowAddAgent(false);
-              }}
+              className="w-full text-left p-3 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 transition disabled:opacity-40"
+              disabled={!isHost && !effectiveModelId}
+              onClick={() => pickProfile(p.id)}
             >
               <div className="flex items-center gap-2">
                 <span className="text-lg">🤖</span>

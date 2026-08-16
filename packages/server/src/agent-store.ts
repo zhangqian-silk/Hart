@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { BUILTIN_PROFILES } from '@hart/agent';
 import type { AgentProfileInfo, GameId } from '@hart/common';
+import { maskSecret } from './secret.js';
 
 /**
  * Agent 配置持久化。
@@ -15,7 +16,7 @@ const CONFIG_FILE = join(DATA_DIR, 'agents.json');
 
 const BUILTIN_IDS = new Set(BUILTIN_PROFILES.map((p) => p.id));
 
-const VALID_KINDS = new Set(['scripted', 'http', 'claude-code', 'codex']);
+const VALID_KINDS = new Set(['scripted', 'http', 'claude-code', 'codex', 'anthropic']);
 const VALID_GAMES: GameId[] = ['wuziqi', 'doudizhu', 'yiyelang', 'avalon'];
 
 /** 内置 profile → 可编辑配置（默认 scripted provider，适用游戏取 gamePolicy 的 key） */
@@ -69,6 +70,9 @@ function sanitize(raw: unknown): AgentProfileInfo[] {
         ...(typeof provider.binPath === 'string' && provider.binPath ? { binPath: provider.binPath } : {}),
         ...(typeof provider.url === 'string' && provider.url ? { url: provider.url } : {}),
         ...(typeof provider.timeoutMs === 'number' ? { timeoutMs: provider.timeoutMs } : {}),
+        ...(typeof provider.apiKey === 'string' && provider.apiKey ? { apiKey: provider.apiKey } : {}),
+        ...(typeof provider.baseUrl === 'string' && provider.baseUrl ? { baseUrl: provider.baseUrl } : {}),
+        ...(typeof provider.configDir === 'string' && provider.configDir ? { configDir: provider.configDir } : {}),
       },
       builtin: BUILTIN_IDS.has(c.id),
     });
@@ -94,16 +98,41 @@ export function listAgentConfigs(): AgentProfileInfo[] {
   return seeded;
 }
 
-/** 全量保存 Agent 配置 */
+/** 全量保存 Agent 配置；apiKey 为脱敏占位（含 •）时沿用原值，空字符串清除 */
 export function saveAgentConfigs(configs: AgentProfileInfo[]): void {
   const clean = sanitize(configs);
+  const old = listAgentConfigs();
+  const oldKeys = new Map(
+    old.filter((c) => c.provider?.apiKey).map((c) => [c.id, c.provider!.apiKey!]),
+  );
+  const merged = clean.map((c) => {
+    const key = c.provider?.apiKey;
+    if (!key) return c;
+    if (key.includes('•')) {
+      const prev = oldKeys.get(c.id);
+      const provider = { ...c.provider! };
+      if (prev) provider.apiKey = prev;
+      else delete provider.apiKey;
+      return { ...c, provider };
+    }
+    return c;
+  });
   mkdirSync(DATA_DIR, { recursive: true });
   // builtin 标记不持久化（运行时按 id 计算）
-  const stripped = clean.map(({ builtin: _b, ...rest }) => rest);
+  const stripped = merged.map(({ builtin: _b, ...rest }) => rest);
   writeFileSync(CONFIG_FILE, JSON.stringify(stripped, null, 2) + '\n');
 }
 
-/** 按 id 查配置（room.addAgent 用） */
+/** 按 id 查配置（room.addAgent 用，含明文凭据，仅服务端内部） */
 export function getAgentConfig(id: string): AgentProfileInfo | undefined {
   return listAgentConfigs().find((c) => c.id === id);
+}
+
+/** 脱敏副本（apiKey → ••••xxxx），对外接口用 */
+export function maskedAgentConfigs(configs: AgentProfileInfo[]): AgentProfileInfo[] {
+  return configs.map((c) =>
+    c.provider?.apiKey
+      ? { ...c, provider: { ...c.provider, apiKey: maskSecret(c.provider.apiKey) } }
+      : c,
+  );
 }

@@ -7,6 +7,8 @@ let nextId = 1;
 export class Session {
   readonly id: string;
   name = '';
+  /** 玩家持久身份（hello 时上报/分配），用于 BYOK 模型归属 */
+  pid = '';
   ws: WebSocket;
   room?: Room;
   online = true;

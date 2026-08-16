@@ -89,6 +89,12 @@ export default function Lobby() {
             🤖 Agent 配置
           </a>
           <a
+            href="/models"
+            className="inline-flex items-center gap-1.5 text-xs text-emerald-300/80 hover:text-emerald-200 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-400/20 rounded-full px-3 py-1 transition-colors"
+          >
+            🔑 我的模型
+          </a>
+          <a
             href="/system"
             className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full px-3 py-1 transition-colors"
           >

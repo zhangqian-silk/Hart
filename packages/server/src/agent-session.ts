@@ -15,6 +15,8 @@ export class AgentSession {
   room?: Room;
   readonly profile: AgentProfile;
   readonly provider: AgentProvider;
+  /** 使用的玩家模型标签（modelRef 指定时存在，仅展示用） */
+  modelLabel?: string;
   status: 'idle' | 'thinking' = 'idle';
 
   constructor(profile: AgentProfile, provider: AgentProvider) {

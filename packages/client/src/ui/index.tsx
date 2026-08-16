@@ -113,7 +113,7 @@ export function Seat({
       </span>
       {agent && (
         <span className="text-[10px] text-indigo-200/90 bg-indigo-500/15 border border-indigo-400/25 rounded-full px-1.5 py-px leading-tight">
-          {agent.kind}
+          {agent.modelLabel ?? agent.kind}
         </span>
       )}
       {agent?.status === 'thinking' ? (
