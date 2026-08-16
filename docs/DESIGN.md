@@ -94,7 +94,7 @@ export interface GameDefinition<S, A> {
 客户端 → 服务端：
 
 ```
-hello            { name }                     # 入场，设置昵称
+hello            { name, pid? }                # 入场，设置昵称；pid 为玩家持久身份（BYOK 用）
 room.create      { game }                     # 创建房间
 room.join        { code }                     # 房间号加入
 room.leave       {}
@@ -102,15 +102,18 @@ room.sit         { seat }                     # 选座
 room.ready       { ready }
 room.chat        { text }
 room.options     { options }                  # 房主改设置
+room.add_agent   { profileId, seat?, providerKind?, modelRef? }  # 添加 AI；modelRef={pid,modelId} 用玩家自带模型
+room.remove_agent{ seat }
 game.action      { action }                   # 对局动作
 ```
 
 服务端 → 客户端：
 
 ```
-welcome          { you: PlayerId, code?: RoomCode }
+welcome          { you: PlayerId, name, pid }  # pid 回传（无上报时服务端分配），客户端持久化
 room.state       { room: RoomView }           # 房间/对局全量（含你的 view）
 room.event       { event: GameEvent }         # 增量事件（动画/日志）
+agent.profiles   { profiles }                 # 可选 AI 档案（凭据脱敏）
 error            { message }
 ```
 

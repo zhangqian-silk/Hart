@@ -23,8 +23,14 @@ export interface CliProviderOptions {
   extraArgs?: string[];
   /** 失败重试次数，默认 1 */
   retries?: number;
+  /** API Key：claude 注入 ANTHROPIC_API_KEY，codex 注入 OPENAI_API_KEY（BYOK 用） */
+  apiKey?: string;
+  /** 自定义 API 端点：claude 注入 ANTHROPIC_BASE_URL（中转/网关用） */
+  baseUrl?: string;
+  /** 独立配置目录：claude 注入 CLAUDE_CONFIG_DIR（多账号隔离，会话也按目录隔离） */
+  configDir?: string;
   /** 测试注入：替换子进程执行器（生产环境不要传） */
-  runner?: (bin: string, args: string[], input: string, timeoutMs: number) => Promise<string>;
+  runner?: (bin: string, args: string[], input: string, timeoutMs: number, env?: Record<string, string>) => Promise<string>;
 }
 
 /** 运行 CLI 子进程并收集 stdout */
@@ -33,11 +39,12 @@ function runCli(
   args: string[],
   input: string,
   timeoutMs: number,
+  env?: Record<string, string>,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(bin, args, {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env },
+      env: { ...process.env, ...(env ?? {}) },
     });
     let stdout = '';
     let stderr = '';
@@ -65,6 +72,22 @@ function runCli(
 }
 
 type Runner = typeof runCli;
+
+/** 由凭据选项组装子进程环境变量（BYOK：每个 AI 可用独立 key/端点/配置目录） */
+function cliEnv(
+  kind: 'claude-code' | 'codex',
+  opts: { apiKey?: string; baseUrl?: string; configDir?: string },
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  if (opts.apiKey) {
+    env[kind === 'claude-code' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'] = opts.apiKey;
+  }
+  if (kind === 'claude-code') {
+    if (opts.baseUrl) env.ANTHROPIC_BASE_URL = opts.baseUrl;
+    if (opts.configDir) env.CLAUDE_CONFIG_DIR = opts.configDir;
+  }
+  return env;
+}
 
 /** 判断是否为传输层错误（子进程退出码/超时/启动失败），而非模型输出问题 */
 function isTransportError(e: unknown): boolean {
@@ -145,6 +168,7 @@ export class ClaudeCodeProvider implements AgentProvider {
   private readonly timeoutMs: number;
   private readonly extraArgs: string[];
   private readonly retries: number;
+  private readonly env: Record<string, string>;
   private readonly run: Runner;
 
   constructor(
@@ -159,6 +183,7 @@ export class ClaudeCodeProvider implements AgentProvider {
       ...(options.extraArgs ?? []),
     ];
     this.retries = options.retries ?? 1;
+    this.env = cliEnv('claude-code', options);
     this.run = options.runner ?? runCli;
   }
 
@@ -183,7 +208,7 @@ export class ClaudeCodeProvider implements AgentProvider {
       debugLog(`claude-code ${resuming ? 'resume' : 'new'} session ${id}`);
 
       try {
-        const stdout = await this.run(this.bin, args, prompt, this.timeoutMs);
+        const stdout = await this.run(this.bin, args, prompt, this.timeoutMs, this.env);
         // 会话建立成功：首轮记下 id，后续轮沿用
         this.sessionId = id;
         // claude --output-format json 返回 { result: string } 或直接文本
@@ -238,6 +263,7 @@ export class CodexProvider implements AgentProvider {
   private readonly timeoutMs: number;
   private readonly extraArgs: string[];
   private readonly retries: number;
+  private readonly env: Record<string, string>;
   private readonly run: Runner;
 
   constructor(
@@ -252,6 +278,7 @@ export class CodexProvider implements AgentProvider {
       ...(options.extraArgs ?? []),
     ];
     this.retries = options.retries ?? 1;
+    this.env = cliEnv('codex', options);
     this.run = options.runner ?? runCli;
   }
 
@@ -274,7 +301,7 @@ export class CodexProvider implements AgentProvider {
       debugLog(`codex ${resuming ? `resume ${this.threadId}` : 'new session'}`);
 
       try {
-        const stdout = await this.run(this.bin, args, prompt, this.timeoutMs);
+        const stdout = await this.run(this.bin, args, prompt, this.timeoutMs, this.env);
         const { threadId, message } = parseCodexJsonl(stdout);
         // 首轮捕获 thread_id；续跑时以流里的为准
         if (threadId) this.threadId = threadId;
@@ -320,6 +347,9 @@ export function createClaudeCodeProvider(
     effort: typeof opts.effort === 'string' ? opts.effort : undefined,
     timeoutMs: typeof opts.timeoutMs === 'number' ? opts.timeoutMs : undefined,
     extraArgs: Array.isArray(opts.extraArgs) ? (opts.extraArgs as string[]) : undefined,
+    apiKey: typeof opts.apiKey === 'string' ? opts.apiKey : undefined,
+    baseUrl: typeof opts.baseUrl === 'string' ? opts.baseUrl : undefined,
+    configDir: typeof opts.configDir === 'string' ? opts.configDir : undefined,
   });
 }
 
@@ -334,5 +364,6 @@ export function createCodexProvider(
     effort: typeof opts.effort === 'string' ? opts.effort : undefined,
     timeoutMs: typeof opts.timeoutMs === 'number' ? opts.timeoutMs : undefined,
     extraArgs: Array.isArray(opts.extraArgs) ? (opts.extraArgs as string[]) : undefined,
+    apiKey: typeof opts.apiKey === 'string' ? opts.apiKey : undefined,
   });
 }

@@ -2,6 +2,7 @@ import type { ProviderFactory } from '../types.js';
 import { createScriptedProvider } from './scripted.js';
 import { createHttpProvider } from './http.js';
 import { createClaudeCodeProvider, createCodexProvider } from './cli.js';
+import { createAnthropicProvider } from './anthropic.js';
 
 /** 内置 Provider 工厂注册表 */
 export const providerFactories = new Map<string, ProviderFactory>([
@@ -9,6 +10,7 @@ export const providerFactories = new Map<string, ProviderFactory>([
   ['http', createHttpProvider],
   ['claude-code', createClaudeCodeProvider],
   ['codex', createCodexProvider],
+  ['anthropic', createAnthropicProvider],
 ]);
 
 export function registerProvider(kind: string, factory: ProviderFactory): void {
@@ -33,3 +35,4 @@ export {
   createClaudeCodeProvider,
   createCodexProvider,
 } from './cli.js';
+export { AnthropicProvider, createAnthropicProvider } from './anthropic.js';

@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getGame, type GameId, type GameMeta } from '@hart/common';
+import { getGame, type GameId, type GameMeta, type ModelRef } from '@hart/common';
 import type { ChatMsg, GameEvent, GameOptions, PlayerId, RoomCode, SeatInfo } from '@hart/common';
 import {
   AgentDriver,
@@ -8,9 +8,10 @@ import {
   type AgentProfile,
 } from '@hart/agent';
 import { GameHost } from './host.js';
-import type { Session } from './session.js';
+import { Session } from './session.js';
 import { AgentSession } from './agent-session.js';
 import { getAgentConfig } from './agent-store.js';
+import { getPlayerModel } from './player-model-store.js';
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
@@ -97,14 +98,29 @@ export class Room {
     this.broadcast();
   }
 
-  /** 房主添加 AI 到指定座位（或自动选座） */
+  /**
+   * 房主添加 AI 到指定座位（或自动选座）。
+   * modelRef 指定使用某玩家的模型凭据（BYOK）：
+   *  - 引用自己的模型：任何在座玩家均可（花自己的额度）
+   *  - 引用他人模型：仅房主，且模型拥有者必须在房间内
+   */
   addAgent(
     session: Session,
     seat: number | undefined,
     profileId: string,
     providerKind?: string,
+    modelRef?: ModelRef,
   ): string | null {
-    if (session.id !== this.host) return '只有房主可以添加 AI';
+    // 权限：无 modelRef 时仅房主；引用自己模型时本人即可
+    if (!modelRef) {
+      if (session.id !== this.host) return '只有房主可以添加 AI';
+    } else if (modelRef.pid !== session.pid) {
+      if (session.id !== this.host) return '只有房主可以使用他人的模型';
+      const ownerInRoom = this.members().some(
+        (m) => m instanceof Session && m.pid === modelRef.pid,
+      );
+      if (!ownerInRoom) return '模型拥有者不在房间内';
+    }
     if (this.status === 'playing') return '对局进行中';
     const config = getAgentConfig(profileId);
     if (!config) return `未知 Agent: ${profileId}`;
@@ -128,17 +144,40 @@ export class Room {
         ...(config.systemPrompt ? { systemPrompt: config.systemPrompt } : {}),
         ...(config.gamePolicy ? { gamePolicy: config.gamePolicy } : {}),
       };
-      const kind = providerKind ?? config.provider?.kind ?? 'scripted';
-      const provider = createProvider(
-        kind,
-        profile,
-        (config.provider ?? {}) as Record<string, unknown>,
-      );
+      let provider: ReturnType<typeof createProvider>;
+      let modelLabel: string | undefined;
+      if (modelRef) {
+        // BYOK：从玩家模型仓库解析凭据（明文仅在此处使用，不广播）
+        const pm = getPlayerModel(modelRef.pid, modelRef.modelId);
+        if (!pm) return '玩家模型不存在或已被删除';
+        if (!pm.model) return '玩家模型未配置 model';
+        provider = createProvider(pm.kind, profile, {
+          model: pm.model,
+          ...(pm.apiKey ? { apiKey: pm.apiKey } : {}),
+          ...(pm.baseUrl ? { baseUrl: pm.baseUrl } : {}),
+          ...(pm.effort ? { effort: pm.effort } : {}),
+          ...(pm.binPath ? { binPath: pm.binPath } : {}),
+          ...(pm.timeoutMs ? { timeoutMs: pm.timeoutMs } : {}),
+        });
+        modelLabel = pm.label;
+      } else {
+        const kind = providerKind ?? config.provider?.kind ?? 'scripted';
+        provider = createProvider(
+          kind,
+          profile,
+          (config.provider ?? {}) as Record<string, unknown>,
+        );
+      }
       const agent = new AgentSession(profile, provider);
+      agent.modelLabel = modelLabel;
       agent.room = this;
       this.seats[target] = agent;
       this.ready.add(agent.id); // AI 自动准备
-      this.addChat(session, `添加了 AI 玩家「${profile.name}」`, true);
+      this.addChat(
+        session,
+        `添加了 AI 玩家「${profile.name}」${modelLabel ? `（模型：${modelLabel}）` : ''}`,
+        true,
+      );
       this.broadcast();
       return null;
     } catch (e) {
@@ -326,6 +365,7 @@ export class Room {
           profileName: s.profile.name,
           kind: s.provider.kind,
           status: s.status,
+          ...(s.modelLabel ? { modelLabel: s.modelLabel } : {}),
         };
       }
       return base;

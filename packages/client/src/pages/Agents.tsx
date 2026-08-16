@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { listGames, type GameId, type AgentProfileInfo, type AgentProviderInfo } from '@hart/common';
 import { useGame } from '../store/game';
+import { adminHeaders } from '../net/admin';
 
 const PROVIDER_KINDS = [
   { value: 'scripted', label: '内置启发式（离线）' },
   { value: 'claude-code', label: 'Claude Code CLI' },
   { value: 'codex', label: 'Codex CLI' },
+  { value: 'anthropic', label: 'Anthropic API（直连）' },
   { value: 'http', label: 'HTTP Webhook' },
 ];
 
@@ -123,7 +125,7 @@ export default function Agents() {
     try {
       const res = await fetch('/api/agents', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: adminHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(agents),
       });
       const data = await res.json();
@@ -184,6 +186,9 @@ export default function Agents() {
           kind: selected.provider.kind,
           binPath: selected.provider.binPath || sysProvider?.binPath,
           url: selected.provider.url,
+          apiKey: selected.provider.apiKey,
+          baseUrl: selected.provider.baseUrl,
+          model: selected.provider.model,
         }),
       });
       const data = await res.json();
@@ -466,6 +471,98 @@ export default function Agents() {
                           })
                         }
                         placeholder={kind === 'claude-code' ? '180000' : '120000'}
+                      />
+                    </Field>
+                    <Field label="API Key（可选，覆盖宿主机凭据）">
+                      <input
+                        type="password"
+                        className="input w-full"
+                        value={selected.provider?.apiKey ?? ''}
+                        onChange={(e) => updateProvider({ apiKey: e.target.value || undefined })}
+                        placeholder={
+                          selected.provider?.apiKey?.includes('•')
+                            ? `已保存（${selected.provider.apiKey}）`
+                            : 'sk-ant-...'
+                        }
+                        autoComplete="off"
+                      />
+                    </Field>
+                    <Field label="API 端点（可选）">
+                      <input
+                        className="input w-full"
+                        value={selected.provider?.baseUrl ?? ''}
+                        onChange={(e) => updateProvider({ baseUrl: e.target.value || undefined })}
+                        placeholder="https://api.anthropic.com"
+                      />
+                    </Field>
+                    {kind === 'claude-code' && (
+                      <Field label="配置目录（可选，多账号隔离）">
+                        <input
+                          className="input w-full"
+                          value={selected.provider?.configDir ?? ''}
+                          onChange={(e) => updateProvider({ configDir: e.target.value || undefined })}
+                          placeholder="CLAUDE_CONFIG_DIR，如 /data/keys/acct-1"
+                        />
+                      </Field>
+                    )}
+                  </div>
+                )}
+
+                {kind === 'anthropic' && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <Field label="模型">
+                      <input
+                        className="input w-full"
+                        value={selected.provider?.model ?? ''}
+                        onChange={(e) => updateProvider({ model: e.target.value || undefined })}
+                        placeholder="claude-sonnet-5"
+                      />
+                    </Field>
+                    <Field label="努力程度">
+                      <select
+                        className="input w-full"
+                        value={selected.provider?.effort ?? ''}
+                        onChange={(e) => updateProvider({ effort: e.target.value || undefined })}
+                      >
+                        <option value="">默认</option>
+                        {['low', 'medium', 'high', 'xhigh', 'max'].map((e) => (
+                          <option key={e} value={e}>{e}</option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="API Key">
+                      <input
+                        type="password"
+                        className="input w-full"
+                        value={selected.provider?.apiKey ?? ''}
+                        onChange={(e) => updateProvider({ apiKey: e.target.value || undefined })}
+                        placeholder={
+                          selected.provider?.apiKey?.includes('•')
+                            ? `已保存（${selected.provider.apiKey}）`
+                            : 'sk-ant-...'
+                        }
+                        autoComplete="off"
+                      />
+                    </Field>
+                    <Field label="API 端点（可选，默认官方）">
+                      <input
+                        className="input w-full"
+                        value={selected.provider?.baseUrl ?? ''}
+                        onChange={(e) => updateProvider({ baseUrl: e.target.value || undefined })}
+                        placeholder="https://api.anthropic.com"
+                      />
+                    </Field>
+                    <Field label="超时（毫秒）">
+                      <input
+                        type="number"
+                        className="input w-full"
+                        value={selected.provider?.timeoutMs ?? ''}
+                        onChange={(e) =>
+                          updateProvider({
+                            timeoutMs: e.target.value ? Number(e.target.value) : undefined,
+                          })
+                        }
+                        placeholder="120000"
                       />
                     </Field>
                   </div>

@@ -4,8 +4,13 @@ import { existsSync } from 'node:fs';
 import { join, normalize, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { listGames, type ClientMsg } from '@hart/common';
-import { listAgentConfigs, listBuiltinDefaults, saveAgentConfigs } from './agent-store.js';
+import { listGames, type ClientMsg, type PlayerModel } from '@hart/common';
+import {
+  listAgentConfigs,
+  listBuiltinDefaults,
+  saveAgentConfigs,
+  maskedAgentConfigs,
+} from './agent-store.js';
 import { checkProvider } from './provider-check.js';
 import {
   getSystemConfig,
@@ -17,6 +22,8 @@ import {
 import { fetchProviderMeta } from './provider-meta.js';
 import { Room, genCode } from './room.js';
 import { Session } from './session.js';
+import { isValidPid, newPid, upsertPlayer } from './player-store.js';
+import { listPlayerModels, savePlayerModels } from './player-model-store.js';
 
 // 注册游戏（各游戏在 common/games 中自注册，import 触发副作用）
 import '@hart/common/games';
@@ -62,6 +69,23 @@ async function serveStatic(reqUrl: string, res: import('node:http').ServerRespon
 }
 
 const rooms = new Map<string, Room>();
+
+/**
+ * 管理接口鉴权：设置 HART_ADMIN_TOKEN 后，写操作需携带
+ * Authorization: Bearer <token>；未设置时保持开放（单机自用场景）。
+ */
+const ADMIN_TOKEN = process.env.HART_ADMIN_TOKEN ?? '';
+
+function isAdmin(req: import('node:http').IncomingMessage): boolean {
+  if (!ADMIN_TOKEN) return true;
+  return req.headers.authorization === `Bearer ${ADMIN_TOKEN}`;
+}
+
+/** 从查询串取 pid 并校验 */
+function pidFromQuery(reqUrl: string): string | null {
+  const pid = new URL(reqUrl, 'http://x').searchParams.get('pid') ?? '';
+  return isValidPid(pid) ? pid : null;
+}
 
 /** 读取 JSON 请求体（上限 1MB） */
 function readBody(req: import('node:http').IncomingMessage): Promise<unknown> {
@@ -116,9 +140,9 @@ const http = createServer(async (req, res) => {
     res.end(JSON.stringify({ ok: true, rooms: rooms.size }));
     return;
   }
-  // Agent 配置：列表 / 内置默认 / 全量保存
+  // Agent 配置：列表（凭据脱敏）/ 内置默认 / 全量保存（管理接口）
   if (path === '/api/agents' && req.method === 'GET') {
-    sendJson(res, 200, listAgentConfigs());
+    sendJson(res, 200, maskedAgentConfigs(listAgentConfigs()));
     return;
   }
   if (path === '/api/agents/defaults' && req.method === 'GET') {
@@ -126,6 +150,10 @@ const http = createServer(async (req, res) => {
     return;
   }
   if (path === '/api/agents' && req.method === 'PUT') {
+    if (!isAdmin(req)) {
+      sendJson(res, 403, { error: '需要管理员令牌（HART_ADMIN_TOKEN）' });
+      return;
+    }
     try {
       const body = await readBody(req);
       if (!Array.isArray(body)) {
@@ -133,16 +161,23 @@ const http = createServer(async (req, res) => {
         return;
       }
       saveAgentConfigs(body as never);
-      sendJson(res, 200, listAgentConfigs());
+      sendJson(res, 200, maskedAgentConfigs(listAgentConfigs()));
     } catch (e) {
       sendJson(res, 400, { error: e instanceof Error ? e.message : '保存失败' });
     }
     return;
   }
-  // 检测 provider 配置是否可用（CLI 是否存在、URL 是否可达）
+  // 检测 provider 配置是否可用（CLI 是否存在、URL 是否可达、API Key 是否有效）
   if (path === '/api/agents/check-provider' && req.method === 'POST') {
     try {
-      const body = (await readBody(req)) as { kind?: string; binPath?: string; url?: string } | null;
+      const body = (await readBody(req)) as {
+        kind?: string;
+        binPath?: string;
+        url?: string;
+        apiKey?: string;
+        baseUrl?: string;
+        model?: string;
+      } | null;
       if (!body || typeof body.kind !== 'string') {
         sendJson(res, 400, { error: '请求体应包含 kind 字段' });
         return;
@@ -151,6 +186,58 @@ const http = createServer(async (req, res) => {
         kind: body.kind,
         binPath: typeof body.binPath === 'string' ? body.binPath : undefined,
         url: typeof body.url === 'string' ? body.url : undefined,
+        apiKey: typeof body.apiKey === 'string' && !body.apiKey.includes('•') ? body.apiKey : undefined,
+        baseUrl: typeof body.baseUrl === 'string' ? body.baseUrl : undefined,
+        model: typeof body.model === 'string' ? body.model : undefined,
+      });
+      sendJson(res, 200, result);
+    } catch (e) {
+      sendJson(res, 500, { ok: false, error: e instanceof Error ? e.message : '检测失败' });
+    }
+    return;
+  }
+  // 玩家模型仓库（BYOK）：读取（脱敏）/ 全量保存
+  if (path === '/api/me/models' && req.method === 'GET') {
+    const pid = pidFromQuery(url);
+    if (!pid) {
+      sendJson(res, 400, { error: '缺少或非法 pid 参数' });
+      return;
+    }
+    sendJson(res, 200, listPlayerModels(pid));
+    return;
+  }
+  if (path === '/api/me/models' && req.method === 'PUT') {
+    const pid = pidFromQuery(url);
+    if (!pid) {
+      sendJson(res, 400, { error: '缺少或非法 pid 参数' });
+      return;
+    }
+    try {
+      const body = await readBody(req);
+      if (!Array.isArray(body)) {
+        sendJson(res, 400, { error: '请求体应为玩家模型数组' });
+        return;
+      }
+      sendJson(res, 200, savePlayerModels(pid, body));
+    } catch (e) {
+      sendJson(res, 400, { error: e instanceof Error ? e.message : '保存失败' });
+    }
+    return;
+  }
+  // 检测玩家模型可用性（不落库；body 为单个 PlayerModel）
+  if (path === '/api/me/models/check' && req.method === 'POST') {
+    try {
+      const body = (await readBody(req)) as PlayerModel | null;
+      if (!body || typeof body.kind !== 'string') {
+        sendJson(res, 400, { error: '请求体应为玩家模型对象' });
+        return;
+      }
+      const result = await checkProvider({
+        kind: body.kind,
+        binPath: body.binPath,
+        apiKey: body.apiKey && !body.apiKey.includes('•') ? body.apiKey : undefined,
+        baseUrl: body.baseUrl,
+        model: body.model,
       });
       sendJson(res, 200, result);
     } catch (e) {
@@ -163,8 +250,12 @@ const http = createServer(async (req, res) => {
     sendJson(res, 200, getSystemConfig());
     return;
   }
-  // 系统配置：保存（主题、默认模型/effort、binPath）
+  // 系统配置：保存（主题、默认模型/effort、binPath）——管理接口
   if (path === '/api/system' && req.method === 'PUT') {
+    if (!isAdmin(req)) {
+      sendJson(res, 403, { error: '需要管理员令牌（HART_ADMIN_TOKEN）' });
+      return;
+    }
     try {
       const body = (await readBody(req)) as Partial<SystemConfig> | null;
       if (!body || typeof body !== 'object') {
@@ -195,8 +286,12 @@ const http = createServer(async (req, res) => {
     }
     return;
   }
-  // 刷新 provider 元数据（版本、模型、effort 列表），body: { kind?: 'claude-code'|'codex' }
+  // 刷新 provider 元数据（版本、模型、effort 列表），body: { kind?: 'claude-code'|'codex' }——管理接口
   if (path === '/api/system/refresh-meta' && req.method === 'POST') {
+    if (!isAdmin(req)) {
+      sendJson(res, 403, { error: '需要管理员令牌（HART_ADMIN_TOKEN）' });
+      return;
+    }
     try {
       const body = (await readBody(req)) as { kind?: string } | null;
       const kinds: ('claude-code' | 'codex')[] =
@@ -254,11 +349,21 @@ wss.on('connection', (ws) => {
 
 function handle(s: Session, msg: ClientMsg): void {
   switch (msg.t) {
-    case 'hello':
-      s.name = msg.name.slice(0, 20) || `玩家${s.id}`;
-      s.send({ t: 'welcome', you: s.id, name: s.name });
-      s.send({ t: 'agent.profiles', profiles: listAgentConfigs() });
+    case 'hello': {
+      const name = msg.name.slice(0, 20) || `玩家${s.id}`;
+      // 持久玩家身份：客户端上报合法 pid 则沿用，否则分配新 pid
+      const pid = isValidPid(msg.pid) ? msg.pid : newPid();
+      s.pid = pid;
+      s.name = name;
+      try {
+        upsertPlayer(pid, name);
+      } catch (e) {
+        console.error('[player-store] upsert 失败:', e);
+      }
+      s.send({ t: 'welcome', you: s.id, name: s.name, pid });
+      s.send({ t: 'agent.profiles', profiles: maskedAgentConfigs(listAgentConfigs()) });
       break;
+    }
     case 'room.create': {
       if (s.room) s.room.leave(s);
       const code = genCode((c) => rooms.has(c));
@@ -323,7 +428,7 @@ function handle(s: Session, msg: ClientMsg): void {
       break;
     case 'room.add_agent':
       if (s.room) {
-        const err = s.room.addAgent(s, msg.seat, msg.profileId, msg.providerKind);
+        const err = s.room.addAgent(s, msg.seat, msg.profileId, msg.providerKind, msg.modelRef);
         if (err) s.send({ t: 'error', message: err });
       }
       break;

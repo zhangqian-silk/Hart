@@ -44,8 +44,9 @@ GameDefinition.apply(state, action) → events → 广播 + 写入 replay
 ## 3. 服务器集成（联机 AI 座位）
 
 - 座位可由 `AgentSession`（`packages/server/src/agent-session.ts`）占据，与人类 `Session` 同构。
-- 协议扩展：`room.add_agent` / `room.remove_agent`（仅房主）；`agent.profiles` 下发可选档案；
-  `SeatInfo.agent` 携带 `{profileId, profileName, kind, status}`，`status` 在决策期间为 thinking。
+- 协议扩展：`room.add_agent` / `room.remove_agent`（默认仅房主；带 `modelRef` 引用自己模型时
+  任何在座玩家均可，详见 §7）；`agent.profiles` 下发可选档案；
+  `SeatInfo.agent` 携带 `{profileId, profileName, kind, status, modelLabel?}`，`status` 在决策期间为 thinking。
 - 驱动：`GameHost` 实现 `DrivenHost`（新增 `legalActionsFor`），每次动作后 `pumpAgents()`
   调用 `AgentDriver.pump()` 驱动所有轮到的 AI；连续 AI 回合通过 `afterAction` 递归衔接。
 - 录像：终局把事件序列写入 `packages/server/data/replays/<game>-<code>-<ts>.json`。
@@ -74,7 +75,40 @@ pnpm --filter @hart/agent arena -- --rounds 50        # 自定义局数
 外部 LLM 推荐走 HTTP Agent：接收 `{game, role, visibleState, actions}`，返回
 `{action, reasoning?}`（action 必须是 actions 中的某一项）。
 
-## 7. 真实 Claude CLI 实测
+## 7. 玩家自带模型（BYOK）
+
+玩家可以配置自己的模型凭据，添加 AI 时由 AI 使用自己的 Key 决策（额度由玩家承担）。
+
+**身份**：客户端在 localStorage 生成 `pid`（UUID），`hello` 时上报；服务端落盘
+`data/players/<pid>/player.json`，并在 `welcome` 中回传（无 pid 时服务端分配）。
+
+**模型仓库**：`data/players/<pid>/models.json` 存 `PlayerModel[]`
+（label/kind/model/apiKey/baseUrl/effort/...）。REST：
+
+```
+GET  /api/me/models?pid=...        # 列表（apiKey 脱敏为 ••••xxxx）
+PUT  /api/me/models?pid=...        # 全量保存（含 • 的值沿用原 key，空串清除）
+POST /api/me/models/check          # 单模型可用性检测（不落库）
+```
+
+**Provider 支持**：
+
+- `anthropic`（直连 Messages API）：`POST {baseUrl}/v1/messages`，`x-api-key` 鉴权，
+  会话历史存内存（`start()` 清空），effort 映射为 thinking 预算（被拒绝时自动降级）。
+- `claude-code` / `codex`（CLI）：凭据注入子进程 env——
+  `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` / `CLAUDE_CONFIG_DIR` / `OPENAI_API_KEY`。
+  一个 `claude` 二进制即可按 AI 座位使用不同 Key；`CLAUDE_CONFIG_DIR` 还能隔离
+  OAuth 登录态与会话记录。
+
+**房间使用**：`room.add_agent` 带 `modelRef: {pid, modelId}`。权限：
+引用自己的模型 → 任何在座玩家均可；引用他人模型 → 仅房主且拥有者必须在房间内。
+明文 Key 只在服务端创建 Provider 时使用，广播只含 `modelLabel`。
+
+**安全**：所有读接口脱敏（`secret.ts`）；写全局配置（`/api/agents`、`/api/system`）
+在设置 `HART_ADMIN_TOKEN` 后需要 `Authorization: Bearer <token>`（未设置则保持开放，
+单机自用）。Key 明文存于 `data/` 目录，注意文件权限。
+
+## 8. 真实 Claude CLI 实测
 
 `ClaudeCodeProvider` 已用真实 `claude` CLI（Claude Code v2.1.232，`-p --output-format json`）
 完整跑通对局，脚本见 `scripts/claude-game.ts` / `scripts/claude-test.ts`：
