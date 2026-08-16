@@ -262,8 +262,17 @@ function HandFan({
   const usable = Math.max(160, avail - 24);
   const step = n > 1 ? Math.min(CARD_W - 6, (usable - CARD_W) / (n - 1)) : 0;
   const overlap = step - CARD_W; // 负值即重叠量
+  // 扇形弧度把边缘牌向下推（20 张时约 95px），容器必须预留同等高度，
+  // 否则 overflow-hidden 会把边缘牌整排裁掉
+  const maxArc = n > 1 ? Math.pow((n - 1) / 2, 1.7) * 2.2 : 0;
+  const padBottom = Math.ceil(maxArc) + 16; // 含旋转垂直余量
+  const padTop = 28; // 选中牌上浮 18+8px，顶部预留避免被裁
   return (
-    <div ref={wrapRef} className="flex justify-center items-end w-full px-2 overflow-hidden" style={{ minHeight: 104 }}>
+    <div
+      ref={wrapRef}
+      className="flex justify-center items-end w-full px-2 overflow-hidden"
+      style={{ minHeight: 104, paddingTop: padTop, paddingBottom: padBottom }}
+    >
       {cards.map((card, i) => {
         const off = i - mid;
         const isSel = selected.has(cardKey(card));

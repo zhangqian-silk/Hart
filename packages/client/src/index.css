@@ -2,19 +2,52 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
+/* ---------- 主题变量 ---------- */
+:root,
+[data-theme='dark'] {
   color-scheme: dark;
-  /* 语义色板（桌游夜） */
   --bg: #0a0e1a;
-  --surface: rgba(255, 255, 255, 0.05);
+  --surface: rgba(255, 255, 255, 0.055);
   --surface-strong: rgba(255, 255, 255, 0.08);
-  --border: rgba(255, 255, 255, 0.10);
+  --border: rgba(255, 255, 255, 0.1);
   --border-strong: rgba(255, 255, 255, 0.18);
   --text: #e2e8f0;
   --text-muted: #94a3b8;
   --text-faint: #64748b;
   --accent: #818cf8;
   --accent-strong: #6366f1;
+  --input-bg: rgba(0, 0, 0, 0.2);
+  --ghost-bg: rgba(255, 255, 255, 0.05);
+  --ghost-hover: rgba(255, 255, 255, 0.1);
+  --scrollbar: rgba(255, 255, 255, 0.15);
+  --scrollbar-hover: rgba(255, 255, 255, 0.25);
+  --glow-1: rgba(99, 102, 241, 0.16);
+  --glow-2: rgba(168, 85, 247, 0.1);
+  --glow-3: rgba(56, 189, 248, 0.07);
+  --ring-offset: #0a0e1a;
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+  --bg: #eef1f6;
+  --surface: rgba(255, 255, 255, 0.72);
+  --surface-strong: rgba(255, 255, 255, 0.92);
+  --border: rgba(15, 23, 42, 0.1);
+  --border-strong: rgba(15, 23, 42, 0.2);
+  --text: #1e293b;
+  --text-muted: #475569;
+  --text-faint: #64748b;
+  --accent: #6366f1;
+  --accent-strong: #4f46e5;
+  --input-bg: rgba(255, 255, 255, 0.85);
+  --ghost-bg: rgba(15, 23, 42, 0.04);
+  --ghost-hover: rgba(15, 23, 42, 0.08);
+  --scrollbar: rgba(15, 23, 42, 0.15);
+  --scrollbar-hover: rgba(15, 23, 42, 0.25);
+  --glow-1: rgba(99, 102, 241, 0.08);
+  --glow-2: rgba(168, 85, 247, 0.06);
+  --glow-3: rgba(56, 189, 248, 0.05);
+  --ring-offset: #eef1f6;
 }
 
 html,
@@ -24,20 +57,22 @@ body,
 }
 
 body {
-  @apply bg-ink-950 text-slate-100 antialiased;
+  background-color: var(--bg);
+  color: var(--text);
   background-image:
-    radial-gradient(ellipse 70% 50% at 50% -8%, rgba(99, 102, 241, 0.16), transparent 70%),
-    radial-gradient(ellipse 60% 45% at 88% 8%, rgba(168, 85, 247, 0.10), transparent 70%),
-    radial-gradient(ellipse 60% 50% at 8% 100%, rgba(56, 189, 248, 0.07), transparent 70%);
+    radial-gradient(ellipse 70% 50% at 50% -8%, var(--glow-1), transparent 70%),
+    radial-gradient(ellipse 60% 45% at 88% 8%, var(--glow-2), transparent 70%),
+    radial-gradient(ellipse 60% 50% at 8% 100%, var(--glow-3), transparent 70%);
   background-attachment: fixed;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
-/* 牌桌 felt 质感（深绿呢面 + 中心聚光） */
+/* 牌桌 felt 质感（深绿呢面 + 中心聚光）——游戏桌面两主题均保持深色 */
 .felt-table {
   background:
     radial-gradient(ellipse 75% 60% at 50% 42%, rgba(52, 211, 153, 0.14), transparent 72%),
     radial-gradient(circle at 50% 40%, #15574e 0%, #0f463f 42%, #0a322e 100%);
-  border: 1px solid rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
     inset 0 0 90px rgba(0, 0, 0, 0.45),
@@ -79,33 +114,76 @@ body {
   }
 }
 
+/* ---------- 组件类（用 CSS 变量，随主题切换） ---------- */
 @layer components {
   .glass {
-    @apply bg-white/[0.055] backdrop-blur-xl border border-white/10 rounded-2xl;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 8px 30px rgba(0, 0, 0, 0.28);
+    background: var(--surface);
+    backdrop-filter: blur(16px);
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 8px 30px rgba(0, 0, 0, 0.12);
   }
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium
       transition-all duration-150 select-none active:scale-[0.97]
       disabled:opacity-40 disabled:cursor-not-allowed
-      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-ink-950;
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/70;
+    --tw-ring-offset-color: var(--ring-offset);
   }
   .btn-primary {
     @apply btn text-white shadow-lg shadow-indigo-500/30
       bg-gradient-to-b from-indigo-500 to-indigo-600 hover:from-indigo-400 hover:to-indigo-500;
   }
   .btn-ghost {
-    @apply btn bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 hover:border-white/20;
+    @apply btn;
+    background: var(--ghost-bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover {
+    background: var(--ghost-hover);
+    border-color: var(--border-strong);
   }
   .input {
-    @apply bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-slate-100
-      placeholder:text-slate-500 transition
-      focus:outline-none focus:ring-2 focus:ring-indigo-400/50 focus:border-indigo-400/40;
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    color: var(--text);
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .input::placeholder {
+    color: var(--text-faint);
+  }
+  .input:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.35);
+    border-color: rgba(129, 140, 248, 0.5);
   }
   .chip {
-    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium
-      bg-white/5 border border-white/10 text-slate-300;
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium;
+    background: var(--ghost-bg);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
   }
+}
+
+/* ---------- 亮色主题下的 Tailwind 工具类适配 ---------- */
+/* 页面里大量使用 text-slate-* / bg-white-* / border-white-*，亮色下需要反转 */
+[data-theme='light'] {
+  .text-slate-100, .text-slate-200, .text-slate-300 { color: var(--text) !important; }
+  .text-slate-400 { color: var(--text-muted) !important; }
+  .text-slate-500 { color: var(--text-faint) !important; }
+  .bg-white\/5 { background-color: var(--ghost-bg) !important; }
+  .bg-white\/10 { background-color: var(--ghost-hover) !important; }
+  .bg-white\/\[0\.055\] { background-color: var(--surface) !important; }
+  .border-white\/10 { border-color: var(--border) !important; }
+  .border-white\/20 { border-color: var(--border-strong) !important; }
+  .hover\:bg-white\/10:hover { background-color: var(--ghost-hover) !important; }
+  .hover\:border-white\/25:hover { border-color: var(--border-strong) !important; }
+  .bg-black\/20 { background-color: rgba(15, 23, 42, 0.04) !important; }
+  .divide-white\/10 > * + * { border-color: var(--border) !important; }
 }
 
 /* 滚动条 */
@@ -114,11 +192,11 @@ body {
   height: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--scrollbar);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
+  background: var(--scrollbar-hover);
 }
 ::-webkit-scrollbar-track {
   background: transparent;

@@ -4,6 +4,8 @@ import { net } from './net/client';
 import Lobby from './pages/Lobby';
 import Room from './pages/Room';
 import LocalGame from './pages/LocalGame';
+import Agents from './pages/Agents';
+import System from './pages/System';
 import type { GameId } from '@hart/common';
 import { Toast } from './ui';
 
@@ -14,6 +16,8 @@ export default function App() {
 
   const localMatch = location.pathname.match(/^\/local\/(\w+)/);
   const localGame = localMatch?.[1] as GameId | undefined;
+  const isAgents = location.pathname === '/agents';
+  const isSystem = location.pathname === '/system';
 
   useEffect(() => {
     bindNet();
@@ -23,6 +27,15 @@ export default function App() {
       useGame.setState({ connected: c });
       if (c) onOpen();
     };
+    // 启动时拉取系统配置并应用主题
+    fetch('/api/system')
+      .then((r) => r.json())
+      .then((data: { theme?: string }) => {
+        if (data.theme === 'light' || data.theme === 'dark') {
+          document.documentElement.dataset.theme = data.theme;
+        }
+      })
+      .catch(() => {});
   }, []);
 
   return (
@@ -34,6 +47,10 @@ export default function App() {
       )}
       {localGame ? (
         <LocalGame key={localGame} gameId={localGame} />
+      ) : isAgents ? (
+        <Agents />
+      ) : isSystem ? (
+        <System />
       ) : room ? (
         <Room />
       ) : (

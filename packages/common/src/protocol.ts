@@ -76,10 +76,36 @@ export type ServerMsg =
   | { t: 'agent.profiles'; profiles: AgentProfileInfo[] }
   | { t: 'error'; message: string };
 
+/** Agent Provider 配置（决定 AI 用什么执行能力） */
+export interface AgentProviderInfo {
+  /** Provider 类型：scripted / http / claude-code / codex */
+  kind: string;
+  /** 模型（claude-code / codex 用） */
+  model?: string;
+  /** 努力程度（claude-code 用） */
+  effort?: string;
+  /** 可执行文件路径（CLI 用，缺省取 PATH 中的 claude/codex） */
+  binPath?: string;
+  /** Webhook URL（http 用） */
+  url?: string;
+  /** 超时毫秒 */
+  timeoutMs?: number;
+}
+
 /** 可选 Agent 档案（大厅/房间添加 AI 用） */
 export interface AgentProfileInfo {
   id: string;
   name: string;
   persona: string;
   strategy: string;
+  /** 可选：完整 system prompt 覆盖 */
+  systemPrompt?: string;
+  /** 按游戏的策略细则（Game Policy） */
+  gamePolicy?: Partial<Record<GameId, string>>;
+  /** 适用的游戏列表（空/缺省 = 全部游戏） */
+  games?: GameId[];
+  /** Provider 配置（缺省 = scripted） */
+  provider?: AgentProviderInfo;
+  /** 是否内置档案（内置可重置为默认） */
+  builtin?: boolean;
 }

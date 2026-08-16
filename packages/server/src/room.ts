@@ -1,15 +1,16 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getGame, type GameMeta } from '@hart/common';
+import { getGame, type GameId, type GameMeta } from '@hart/common';
 import type { ChatMsg, GameEvent, GameOptions, PlayerId, RoomCode, SeatInfo } from '@hart/common';
 import {
   AgentDriver,
   createProvider,
-  getProfile,
+  type AgentProfile,
 } from '@hart/agent';
 import { GameHost } from './host.js';
 import type { Session } from './session.js';
 import { AgentSession } from './agent-session.js';
+import { getAgentConfig } from './agent-store.js';
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
@@ -101,12 +102,16 @@ export class Room {
     session: Session,
     seat: number | undefined,
     profileId: string,
-    providerKind = 'scripted',
+    providerKind?: string,
   ): string | null {
     if (session.id !== this.host) return '只有房主可以添加 AI';
     if (this.status === 'playing') return '对局进行中';
-    const profile = getProfile(profileId);
-    if (!profile) return `未知 Agent 档案: ${profileId}`;
+    const config = getAgentConfig(profileId);
+    if (!config) return `未知 Agent: ${profileId}`;
+    // 适用游戏检查：games 为空表示适用全部
+    if (config.games && config.games.length > 0 && !config.games.includes(this.game as GameId)) {
+      return `Agent「${config.name}」不适用于本游戏`;
+    }
     let target = seat;
     if (target === undefined) {
       target = this.seats.findIndex((s) => !s);
@@ -115,7 +120,20 @@ export class Room {
     if (target < 0 || target >= this.seats.length) return '座位不存在';
     if (this.seats[target]) return '座位已被占用';
     try {
-      const provider = createProvider(providerKind, profile);
+      const profile: AgentProfile = {
+        id: config.id,
+        name: config.name,
+        persona: config.persona,
+        strategy: config.strategy,
+        ...(config.systemPrompt ? { systemPrompt: config.systemPrompt } : {}),
+        ...(config.gamePolicy ? { gamePolicy: config.gamePolicy } : {}),
+      };
+      const kind = providerKind ?? config.provider?.kind ?? 'scripted';
+      const provider = createProvider(
+        kind,
+        profile,
+        (config.provider ?? {}) as Record<string, unknown>,
+      );
       const agent = new AgentSession(profile, provider);
       agent.room = this;
       this.seats[target] = agent;
