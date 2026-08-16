@@ -81,6 +81,20 @@ export default function Lobby() {
           </span>
         </h1>
         <p className="text-slate-400 text-sm">聚会不用带道具，打开网页就能玩</p>
+        <div className="flex items-center justify-center gap-2 mt-3">
+          <a
+            href="/agents"
+            className="inline-flex items-center gap-1.5 text-xs text-indigo-300/80 hover:text-indigo-200 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-400/20 rounded-full px-3 py-1 transition-colors"
+          >
+            🤖 Agent 配置
+          </a>
+          <a
+            href="/system"
+            className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full px-3 py-1 transition-colors"
+          >
+            ⚙️ 系统设置
+          </a>
+        </div>
       </header>
 
       <div className="glass p-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 mb-8 w-full max-w-lg">

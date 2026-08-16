@@ -5,7 +5,16 @@ import { join, normalize, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { listGames, type ClientMsg } from '@hart/common';
-import { BUILTIN_PROFILES } from '@hart/agent';
+import { listAgentConfigs, listBuiltinDefaults, saveAgentConfigs } from './agent-store.js';
+import { checkProvider } from './provider-check.js';
+import {
+  getSystemConfig,
+  saveSystemConfig,
+  updateProviderMeta,
+  metaStale,
+  type SystemConfig,
+} from './system-store.js';
+import { fetchProviderMeta } from './provider-meta.js';
 import { Room, genCode } from './room.js';
 import { Session } from './session.js';
 
@@ -54,21 +63,162 @@ async function serveStatic(reqUrl: string, res: import('node:http').ServerRespon
 
 const rooms = new Map<string, Room>();
 
-const http = createServer((req, res) => {
-  if (req.url === '/api/games') {
+/** 读取 JSON 请求体（上限 1MB） */
+function readBody(req: import('node:http').IncomingMessage): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.on('data', (chunk) => {
+      data += chunk;
+      if (data.length > 1_000_000) {
+        reject(new Error('请求体过大'));
+        req.destroy();
+      }
+    });
+    req.on('end', () => {
+      try {
+        resolve(data ? JSON.parse(data) : null);
+      } catch (e) {
+        reject(e instanceof Error ? e : new Error('JSON 解析失败'));
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+function sendJson(res: import('node:http').ServerResponse, status: number, body: unknown): void {
+  res.statusCode = status;
+  res.setHeader('content-type', 'application/json');
+  res.end(JSON.stringify(body));
+}
+
+/** 只保留 provider 的可编辑字段（binPath/defaultModel/defaultEffort），meta 不允许直接写 */
+function sanitizeProviderFields(p: unknown): { binPath?: string; defaultModel?: string; defaultEffort?: string } {
+  const o = (p ?? {}) as Record<string, unknown>;
+  return {
+    ...(typeof o.binPath === 'string' ? { binPath: o.binPath } : {}),
+    ...(typeof o.defaultModel === 'string' ? { defaultModel: o.defaultModel } : {}),
+    ...(typeof o.defaultEffort === 'string' ? { defaultEffort: o.defaultEffort } : {}),
+  };
+}
+
+const http = createServer(async (req, res) => {
+  const url = req.url ?? '/';
+  const path = url.split('?')[0] ?? '/';
+
+  if (path === '/api/games' && req.method === 'GET') {
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify(listGames()));
     return;
   }
   // 健康检查
-  if (req.url === '/healthz') {
+  if (path === '/healthz') {
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify({ ok: true, rooms: rooms.size }));
     return;
   }
+  // Agent 配置：列表 / 内置默认 / 全量保存
+  if (path === '/api/agents' && req.method === 'GET') {
+    sendJson(res, 200, listAgentConfigs());
+    return;
+  }
+  if (path === '/api/agents/defaults' && req.method === 'GET') {
+    sendJson(res, 200, listBuiltinDefaults());
+    return;
+  }
+  if (path === '/api/agents' && req.method === 'PUT') {
+    try {
+      const body = await readBody(req);
+      if (!Array.isArray(body)) {
+        sendJson(res, 400, { error: '请求体应为 Agent 配置数组' });
+        return;
+      }
+      saveAgentConfigs(body as never);
+      sendJson(res, 200, listAgentConfigs());
+    } catch (e) {
+      sendJson(res, 400, { error: e instanceof Error ? e.message : '保存失败' });
+    }
+    return;
+  }
+  // 检测 provider 配置是否可用（CLI 是否存在、URL 是否可达）
+  if (path === '/api/agents/check-provider' && req.method === 'POST') {
+    try {
+      const body = (await readBody(req)) as { kind?: string; binPath?: string; url?: string } | null;
+      if (!body || typeof body.kind !== 'string') {
+        sendJson(res, 400, { error: '请求体应包含 kind 字段' });
+        return;
+      }
+      const result = await checkProvider({
+        kind: body.kind,
+        binPath: typeof body.binPath === 'string' ? body.binPath : undefined,
+        url: typeof body.url === 'string' ? body.url : undefined,
+      });
+      sendJson(res, 200, result);
+    } catch (e) {
+      sendJson(res, 500, { ok: false, error: e instanceof Error ? e.message : '检测失败' });
+    }
+    return;
+  }
+  // 系统配置：读取
+  if (path === '/api/system' && req.method === 'GET') {
+    sendJson(res, 200, getSystemConfig());
+    return;
+  }
+  // 系统配置：保存（主题、默认模型/effort、binPath）
+  if (path === '/api/system' && req.method === 'PUT') {
+    try {
+      const body = (await readBody(req)) as Partial<SystemConfig> | null;
+      if (!body || typeof body !== 'object') {
+        sendJson(res, 400, { error: '请求体应为系统配置对象' });
+        return;
+      }
+      const current = getSystemConfig();
+      const merged: SystemConfig = {
+        theme: body.theme === 'light' ? 'light' : body.theme === 'dark' ? 'dark' : current.theme,
+        providers: {
+          'claude-code': {
+            ...current.providers['claude-code'],
+            ...sanitizeProviderFields(body.providers?.['claude-code']),
+          },
+          'codex': {
+            ...current.providers['codex'],
+            ...sanitizeProviderFields(body.providers?.['codex']),
+          },
+          'http': {
+            url: typeof body.providers?.http?.url === 'string' ? body.providers.http.url : current.providers.http.url,
+          },
+        },
+      };
+      saveSystemConfig(merged);
+      sendJson(res, 200, merged);
+    } catch (e) {
+      sendJson(res, 400, { error: e instanceof Error ? e.message : '保存失败' });
+    }
+    return;
+  }
+  // 刷新 provider 元数据（版本、模型、effort 列表），body: { kind?: 'claude-code'|'codex' }
+  if (path === '/api/system/refresh-meta' && req.method === 'POST') {
+    try {
+      const body = (await readBody(req)) as { kind?: string } | null;
+      const kinds: ('claude-code' | 'codex')[] =
+        body?.kind === 'claude-code' || body?.kind === 'codex'
+          ? [body.kind]
+          : ['claude-code', 'codex'];
+      const config = getSystemConfig();
+      const results: Record<string, { ok: boolean; error?: string }> = {};
+      for (const kind of kinds) {
+        const meta = await fetchProviderMeta(kind, config.providers[kind].binPath);
+        updateProviderMeta(kind, meta);
+        results[kind] = { ok: !meta.error, ...(meta.error ? { error: meta.error } : {}) };
+      }
+      sendJson(res, 200, { results, config: getSystemConfig() });
+    } catch (e) {
+      sendJson(res, 500, { error: e instanceof Error ? e.message : '刷新失败' });
+    }
+    return;
+  }
   // 生产：提供前端静态资源
   if (SERVE_STATIC && req.method === 'GET') {
-    void serveStatic(req.url ?? '/', res);
+    void serveStatic(url, res);
     return;
   }
   res.statusCode = 404;
@@ -107,15 +257,7 @@ function handle(s: Session, msg: ClientMsg): void {
     case 'hello':
       s.name = msg.name.slice(0, 20) || `玩家${s.id}`;
       s.send({ t: 'welcome', you: s.id, name: s.name });
-      s.send({
-        t: 'agent.profiles',
-        profiles: BUILTIN_PROFILES.map((p) => ({
-          id: p.id,
-          name: p.name,
-          persona: p.persona,
-          strategy: p.strategy,
-        })),
-      });
+      s.send({ t: 'agent.profiles', profiles: listAgentConfigs() });
       break;
     case 'room.create': {
       if (s.room) s.room.leave(s);
