@@ -4,11 +4,19 @@ import { useGame } from '../store/game';
 
 const KIND_LABELS: Record<PlayerModelKind, string> = {
   anthropic: 'Anthropic API（直连）',
+  openai: 'OpenAI API（直连）',
   'claude-code': 'Claude Code CLI',
   codex: 'Codex CLI',
 };
 
 const EFFORTS = ['', 'low', 'medium', 'high', 'xhigh', 'max'];
+/** 直连支持关闭推理（最快档）；openai 仅 low/medium/high 三档；CLI 的 --effort 不支持 off */
+const effortsFor = (kind: string) =>
+  kind === 'anthropic'
+    ? ['', 'off', ...EFFORTS.slice(1)]
+    : kind === 'openai'
+      ? ['', 'off', 'low', 'medium', 'high']
+      : EFFORTS;
 
 function emptyModel(): PlayerModel {
   return {
@@ -246,9 +254,11 @@ export default function MyModels() {
                       placeholder={
                         selected.kind === 'anthropic'
                           ? 'claude-sonnet-5'
-                          : selected.kind === 'claude-code'
-                            ? 'opus / sonnet / haiku'
-                            : 'gpt-5'
+                          : selected.kind === 'openai'
+                            ? 'gpt-5 / 网关模型 ID'
+                            : selected.kind === 'claude-code'
+                              ? 'opus / sonnet / haiku'
+                              : 'gpt-5'
                       }
                     />
                   </Field>
@@ -258,8 +268,8 @@ export default function MyModels() {
                       value={selected.effort ?? ''}
                       onChange={(e) => update({ effort: e.target.value || undefined })}
                     >
-                      {EFFORTS.map((e) => (
-                        <option key={e} value={e}>{e || '默认'}</option>
+                      {effortsFor(selected.kind).map((e) => (
+                        <option key={e} value={e}>{e === '' ? '默认' : e === 'off' ? 'off（关闭 thinking，最快）' : e}</option>
                       ))}
                     </select>
                   </Field>
@@ -278,7 +288,13 @@ export default function MyModels() {
                       className="input w-full"
                       value={selected.baseUrl ?? ''}
                       onChange={(e) => update({ baseUrl: e.target.value || undefined })}
-                      placeholder="https://api.anthropic.com"
+                      placeholder={
+                        selected.kind === 'anthropic'
+                          ? 'https://api.anthropic.com'
+                          : selected.kind === 'openai'
+                            ? 'https://api.openai.com'
+                            : 'https://你的网关'
+                      }
                     />
                   </Field>
                   {(selected.kind === 'claude-code' || selected.kind === 'codex') && (
@@ -306,7 +322,7 @@ export default function MyModels() {
                 <p className="text-[11px] text-slate-500 leading-relaxed">
                   模型保存在你的玩家身份下。在房间里添加 AI 时选择「我的模型」，
                   AI 将使用你的凭据进行决策——额度由你的 Key 承担。
-                  {selected.kind === 'anthropic' &&
+                  {(selected.kind === 'anthropic' || selected.kind === 'openai') &&
                     ' 直连模式不依赖 CLI，会话历史在服务端内存中维护，对局结束即清除。'}
                 </p>
               </section>

@@ -16,7 +16,7 @@ const CONFIG_FILE = join(DATA_DIR, 'agents.json');
 
 const BUILTIN_IDS = new Set(BUILTIN_PROFILES.map((p) => p.id));
 
-const VALID_KINDS = new Set(['scripted', 'http', 'claude-code', 'codex', 'anthropic']);
+const VALID_KINDS = new Set(['scripted', 'http', 'claude-code', 'codex', 'anthropic', 'openai']);
 const VALID_GAMES: GameId[] = ['wuziqi', 'doudizhu', 'yiyelang', 'avalon'];
 
 /** 内置 profile → 可编辑配置（默认 scripted provider，适用游戏取 gamePolicy 的 key） */

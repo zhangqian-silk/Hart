@@ -102,14 +102,14 @@ export interface AgentProviderInfo {
   timeoutMs?: number;
   /** API Key（claude-code / codex / anthropic 用；服务端读取时脱敏为 ••••xxxx） */
   apiKey?: string;
-  /** 自定义 API 端点（anthropic 直连；claude-code 注入 ANTHROPIC_BASE_URL） */
+  /** 自定义 API 端点（anthropic/openai 直连；claude-code 注入 ANTHROPIC_BASE_URL） */
   baseUrl?: string;
   /** 独立 CLI 配置目录（claude-code 注入 CLAUDE_CONFIG_DIR，多账号隔离） */
   configDir?: string;
 }
 
 /** 玩家模型类型（玩家自带凭据的执行能力） */
-export type PlayerModelKind = 'claude-code' | 'codex' | 'anthropic';
+export type PlayerModelKind = 'claude-code' | 'codex' | 'anthropic' | 'openai';
 
 /**
  * 玩家模型（BYOK：玩家自带 API Key）。

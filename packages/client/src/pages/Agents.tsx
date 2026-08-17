@@ -8,6 +8,7 @@ const PROVIDER_KINDS = [
   { value: 'claude-code', label: 'Claude Code CLI' },
   { value: 'codex', label: 'Codex CLI' },
   { value: 'anthropic', label: 'Anthropic API（直连）' },
+  { value: 'openai', label: 'OpenAI API（直连）' },
   { value: 'http', label: 'HTTP Webhook' },
 ];
 
@@ -508,14 +509,14 @@ export default function Agents() {
                   </div>
                 )}
 
-                {kind === 'anthropic' && (
+                {(kind === 'anthropic' || kind === 'openai') && (
                   <div className="grid grid-cols-2 gap-4">
                     <Field label="模型">
                       <input
                         className="input w-full"
                         value={selected.provider?.model ?? ''}
                         onChange={(e) => updateProvider({ model: e.target.value || undefined })}
-                        placeholder="claude-sonnet-5"
+                        placeholder={kind === 'anthropic' ? 'claude-sonnet-5' : 'gpt-5 / 网关模型 ID'}
                       />
                     </Field>
                     <Field label="努力程度">
@@ -525,8 +526,11 @@ export default function Agents() {
                         onChange={(e) => updateProvider({ effort: e.target.value || undefined })}
                       >
                         <option value="">默认</option>
-                        {['low', 'medium', 'high', 'xhigh', 'max'].map((e) => (
-                          <option key={e} value={e}>{e}</option>
+                        {(kind === 'anthropic'
+                          ? ['off', 'low', 'medium', 'high', 'xhigh', 'max']
+                          : ['off', 'low', 'medium', 'high']
+                        ).map((e) => (
+                          <option key={e} value={e}>{e === 'off' ? 'off（关闭推理，最快）' : e}</option>
                         ))}
                       </select>
                     </Field>
@@ -539,7 +543,9 @@ export default function Agents() {
                         placeholder={
                           selected.provider?.apiKey?.includes('•')
                             ? `已保存（${selected.provider.apiKey}）`
-                            : 'sk-ant-...'
+                            : kind === 'anthropic'
+                              ? 'sk-ant-...'
+                              : 'sk-...'
                         }
                         autoComplete="off"
                       />
@@ -549,7 +555,7 @@ export default function Agents() {
                         className="input w-full"
                         value={selected.provider?.baseUrl ?? ''}
                         onChange={(e) => updateProvider({ baseUrl: e.target.value || undefined })}
-                        placeholder="https://api.anthropic.com"
+                        placeholder={kind === 'anthropic' ? 'https://api.anthropic.com' : 'https://api.openai.com'}
                       />
                     </Field>
                     <Field label="超时（毫秒）">
