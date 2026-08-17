@@ -11,7 +11,7 @@ import { isMaskedSecret, maskSecret } from './secret.js';
  * 对外读取一律脱敏；保存时按 • 占位符合并原值。
  */
 
-const VALID_KINDS = new Set<PlayerModelKind>(['claude-code', 'codex', 'anthropic']);
+const VALID_KINDS = new Set<PlayerModelKind>(['claude-code', 'codex', 'anthropic', 'openai']);
 
 function sanitize(raw: unknown): PlayerModel[] {
   if (!Array.isArray(raw)) throw new Error('models.json 格式错误：根节点应为数组');

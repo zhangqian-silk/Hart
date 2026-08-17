@@ -93,12 +93,35 @@ POST /api/me/models/check          # 单模型可用性检测（不落库）
 
 **Provider 支持**：
 
-- `anthropic`（直连 Messages API）：`POST {baseUrl}/v1/messages`，`x-api-key` 鉴权，
-  会话历史存内存（`start()` 清空），effort 映射为 thinking 预算（被拒绝时自动降级）。
+- `anthropic`（Anthropic 协议直连）：`POST {baseUrl}/v1/messages`，`x-api-key` 鉴权，
+  静态提示走 `system` 参数并启用 ephemeral prompt caching（被网关拒绝时自动降级），
+  effort 映射为 thinking 预算（被拒绝时自动降级）。
+- `openai`（OpenAI 协议直连）：`POST {baseUrl}/v1/chat/completions`，`Bearer` 鉴权，
+  effort 的 low/medium/high 映射为 `reasoning_effort`（被拒绝时自动降级）。
+  任何 OpenAI 兼容端点（官方、relay、网关）均可使用。
 - `claude-code` / `codex`（CLI）：凭据注入子进程 env——
   `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` / `CLAUDE_CONFIG_DIR` / `OPENAI_API_KEY`。
   一个 `claude` 二进制即可按 AI 座位使用不同 Key；`CLAUDE_CONFIG_DIR` 还能隔离
   OAuth 登录态与会话记录。
+
+**直连只区分协议，不区分模型品牌**：`anthropic` / `openai` 是两种 API 协议，
+不是模型品牌。relay/网关通常同时提供两种协议端点（同一 Key、同一模型 ID 都可用），
+模型实际是什么由网关按 model ID 路由。配置时选你的网关支持的协议即可，
+不需要关心背后是 Claude 还是 GPT。
+
+**会话模式与性能**（`sessionMode`，默认 `fresh`）：
+
+- `fresh`（默认）：每轮新会话 + 完整自包含 prompt。延迟恒定、上下文不随轮次增长；
+  平台 prompt 已含近 12 个事件与记忆，不损失游戏能力。
+- `resume`：CLI 侧 `--resume` / 直连内存累积历史，保留完整对话记忆，但每轮重发
+  累积上下文，长局（30+ 轮）会明显变慢。
+- anthropic 直连把静态提示（规则/人格/策略/输出格式）放 `system` 参数并启用
+  ephemeral prompt caching（≥4000 字符时），多轮间命中缓存；`effort: 'off'`
+  关闭 thinking，是最快档位。openai 直连同理（system 消息 + `effort: 'off'`
+  不发送 reasoning_effort）。
+- 实测参考：同一 relay 上，CLI 单次决策 4–10s（含 ~25k tokens CLI 基础上下文与
+  子进程启动），直连约 2s。桌游决策用不到 CLI 的 agentic 能力，追求速度优先选
+  anthropic/openai 直连。
 
 **房间使用**：`room.add_agent` 带 `modelRef: {pid, modelId}`。权限：
 引用自己的模型 → 任何在座玩家均可；引用他人模型 → 仅房主且拥有者必须在房间内。

@@ -23,7 +23,11 @@ const OUTPUT_SCHEMA =
   '只输出一个 JSON 对象：{"action": <从 legalActions 中选择的一个动作>, ' +
   '"reasoning": "<简短理由>"}。不要输出其他内容。';
 
-export function buildSections(input: PromptInput): PromptSection[] {
+/**
+ * 静态段落：同局内不变（身份/规则/角色/人格/策略）。
+ * 可作为 system 提示并启用 prompt caching；也可拼入首轮 prompt。
+ */
+export function buildStaticSections(input: PromptInput): PromptSection[] {
   const { profile, ctx, rules } = input;
   const sections: PromptSection[] = [];
 
@@ -49,29 +53,42 @@ export function buildSections(input: PromptInput): PromptSection[] {
   if (gamePolicy) strategyParts.push(`本游戏策略：${gamePolicy}`);
   sections.push({ label: 'Strategy', content: strategyParts.join('\n') });
 
-  sections.push({
-    label: 'Observation',
-    content: JSON.stringify(
-      {
-        visibleState: ctx.visibleState,
-        turn: ctx.turn,
-        legalActions: ctx.actions,
-        recentEvents: ctx.history.slice(-12),
-        players: ctx.players,
-      },
-      null,
-      2,
-    ),
-  });
-
-  sections.push({
-    label: 'Memory',
-    content: JSON.stringify(ctx.memory, null, 2),
-  });
-
-  sections.push({ label: 'Output Schema', content: OUTPUT_SCHEMA });
-
   return sections;
+}
+
+/**
+ * 动态段落：每轮变化（观察 + 记忆）。
+ */
+export function buildDynamicSections(input: PromptInput): PromptSection[] {
+  const { ctx } = input;
+  return [
+    {
+      label: 'Observation',
+      content: JSON.stringify(
+        {
+          visibleState: ctx.visibleState,
+          turn: ctx.turn,
+          legalActions: ctx.actions,
+          recentEvents: ctx.history.slice(-12),
+          players: ctx.players,
+        },
+        null,
+        2,
+      ),
+    },
+    {
+      label: 'Memory',
+      content: JSON.stringify(ctx.memory, null, 2),
+    },
+  ];
+}
+
+export function buildSections(input: PromptInput): PromptSection[] {
+  return [
+    ...buildStaticSections(input),
+    ...buildDynamicSections(input),
+    { label: 'Output Schema', content: OUTPUT_SCHEMA },
+  ];
 }
 
 function sectionsToText(sections: PromptSection[]): string {
@@ -119,3 +136,19 @@ export function buildTurnPrompt(input: PromptInput): string {
 
 /** @deprecated 改用 buildInitialPrompt */
 export const buildPrompt = buildInitialPrompt;
+
+/**
+ * 系统提示文本（静态段落 + 输出格式）。
+ * 同局内不变，直连 Provider 可作为 system 参数并启用 prompt caching。
+ */
+export function buildSystemPrompt(input: PromptInput): string {
+  return sectionsToText([
+    ...buildStaticSections(input),
+    { label: 'Output Schema', content: OUTPUT_SCHEMA },
+  ]);
+}
+
+/** 动态观察文本（每轮变化的用户消息） */
+export function buildObservationPrompt(input: PromptInput): string {
+  return sectionsToText(buildDynamicSections(input));
+}

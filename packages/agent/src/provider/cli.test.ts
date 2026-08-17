@@ -65,9 +65,33 @@ describe('ClaudeCodeProvider 会话管理', () => {
     expect(calls[0]!.input).toContain('## Game Rules');
   });
 
+  it('fresh 模式（默认）：每轮都是新 --session-id + 完整 prompt，不 resume', async () => {
+    const calls: { args: string[]; input: string }[] = [];
+    const provider = new ClaudeCodeProvider(profile, {
+      runner: vi.fn(async (_bin, args, input) => {
+        calls.push({ args: [...args], input });
+        return CLAUDE_OK;
+      }),
+    });
+    await provider.decide(makeContext());
+    await provider.decide(makeContext());
+
+    expect(calls).toHaveLength(2);
+    for (const c of calls) {
+      expect(c.args).toContain('--session-id');
+      expect(c.args).not.toContain('--resume');
+      expect(c.input).toContain('## Base Identity');
+      expect(c.input).toContain('## Game Rules');
+    }
+    const id1 = calls[0]!.args[calls[0]!.args.indexOf('--session-id') + 1];
+    const id2 = calls[1]!.args[calls[1]!.args.indexOf('--session-id') + 1];
+    expect(id2).not.toBe(id1);
+  });
+
   it('后续轮用 --resume 同一 ID，prompt 只含续场观察', async () => {
     const calls: { args: string[]; input: string }[] = [];
     const provider = new ClaudeCodeProvider(profile, {
+      sessionMode: 'resume',
       runner: vi.fn(async (_bin, args, input) => {
         calls.push({ args: [...args], input });
         return CLAUDE_OK;
@@ -101,7 +125,7 @@ describe('ClaudeCodeProvider 会话管理', () => {
       }
       return CLAUDE_OK;
     });
-    const provider = new ClaudeCodeProvider(profile, { runner, retries: 1 });
+    const provider = new ClaudeCodeProvider(profile, { runner, retries: 1, sessionMode: 'resume' });
 
     // 第一轮正常
     await provider.decide(makeContext());
@@ -144,6 +168,7 @@ describe('ClaudeCodeProvider 会话管理', () => {
     let callCount = 0;
     const provider = new ClaudeCodeProvider(profile, {
       retries: 0,
+      sessionMode: 'resume',
       runner: vi.fn(async (_bin, args) => {
         calls.push({ args: [...args] });
         callCount++;
@@ -185,9 +210,29 @@ describe('CodexProvider 会话管理', () => {
     expect(calls[0]!.input).toContain('## Base Identity');
   });
 
+  it('fresh 模式（默认）：每轮都是 exec --json 新会话，不 resume', async () => {
+    const calls: { args: string[]; input: string }[] = [];
+    const provider = new CodexProvider(profile, {
+      runner: vi.fn(async (_bin, args, input) => {
+        calls.push({ args: [...args], input });
+        return CODEX_OK('thread-' + calls.length);
+      }),
+    });
+    await provider.decide(makeContext());
+    await provider.decide(makeContext());
+
+    expect(calls).toHaveLength(2);
+    for (const c of calls) {
+      expect(c.args.slice(0, 2)).toEqual(['exec', '--json']);
+      expect(c.args).not.toContain('resume');
+      expect(c.input).toContain('## Base Identity');
+    }
+  });
+
   it('后续轮用 exec resume 同一 thread_id', async () => {
     const calls: { args: string[]; input: string }[] = [];
     const provider = new CodexProvider(profile, {
+      sessionMode: 'resume',
       runner: vi.fn(async (_bin, args, input) => {
         calls.push({ args: [...args], input });
         return CODEX_OK('thread-abc-123');
@@ -238,7 +283,7 @@ describe('CodexProvider 会话管理', () => {
       }
       return CODEX_OK('new-thread-456');
     });
-    const provider = new CodexProvider(profile, { runner, retries: 1 });
+    const provider = new CodexProvider(profile, { runner, retries: 1, sessionMode: 'resume' });
 
     await provider.decide(makeContext());
     await provider.decide(makeContext());

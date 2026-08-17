@@ -29,6 +29,14 @@ export interface CliProviderOptions {
   baseUrl?: string;
   /** 独立配置目录：claude 注入 CLAUDE_CONFIG_DIR（多账号隔离，会话也按目录隔离） */
   configDir?: string;
+  /**
+   * 会话模式：
+   * - 'fresh'（默认）：每轮新会话 + 完整自包含 prompt。延迟恒定，上下文不随轮次增长；
+   *   平台 prompt 已含近 12 个事件与记忆，不损失游戏能力。
+   * - 'resume'：首轮建会话，后续轮 --resume 续接（CLI 侧保留完整对话记忆），
+   *   但每轮重发累积历史，长局会越来越慢。
+   */
+  sessionMode?: 'fresh' | 'resume';
   /** 测试注入：替换子进程执行器（生产环境不要传） */
   runner?: (bin: string, args: string[], input: string, timeoutMs: number, env?: Record<string, string>) => Promise<string>;
 }
@@ -159,7 +167,9 @@ function parseCodexJsonl(stdout: string): CodexStream {
 /**
  * Claude Code Agent（V8: Claude Code）。
  * 通过 `claude -p --output-format json` 非交互调用。
- * 每局游戏维护一个持久会话：首轮 --session-id 建会话，后续 --resume 续接。
+ * 会话模式（sessionMode）：
+ * - 'fresh'（默认）：每轮新会话 + 完整 prompt，延迟恒定；
+ * - 'resume'：每局维护持久会话，首轮 --session-id 建会话，后续 --resume 续接。
  */
 export class ClaudeCodeProvider implements AgentProvider {
   readonly kind = 'claude-code';
@@ -170,6 +180,7 @@ export class ClaudeCodeProvider implements AgentProvider {
   private readonly retries: number;
   private readonly env: Record<string, string>;
   private readonly run: Runner;
+  private readonly sessionMode: 'fresh' | 'resume';
 
   constructor(
     private readonly profile: AgentProfile,
@@ -185,6 +196,7 @@ export class ClaudeCodeProvider implements AgentProvider {
     this.retries = options.retries ?? 1;
     this.env = cliEnv('claude-code', options);
     this.run = options.runner ?? runCli;
+    this.sessionMode = options.sessionMode ?? 'fresh';
   }
 
   async start(): Promise<void> {
@@ -199,18 +211,19 @@ export class ClaudeCodeProvider implements AgentProvider {
 
     let lastError: unknown = null;
     for (let attempt = 0; attempt <= this.retries; attempt++) {
-      const resuming = this.sessionId !== null;
+      const useResume = this.sessionMode === 'resume';
+      const resuming = useResume && this.sessionId !== null;
       const id = this.sessionId ?? randomUUID();
       const args = resuming
         ? ['-p', '--output-format', 'json', '--resume', id, ...this.extraArgs]
         : ['-p', '--output-format', 'json', '--session-id', id, ...this.extraArgs];
       const prompt = resuming ? turnPrompt : initialPrompt;
-      debugLog(`claude-code ${resuming ? 'resume' : 'new'} session ${id}`);
+      debugLog(`claude-code ${resuming ? 'resume' : 'fresh'} session ${id}`);
 
       try {
         const stdout = await this.run(this.bin, args, prompt, this.timeoutMs, this.env);
-        // 会话建立成功：首轮记下 id，后续轮沿用
-        this.sessionId = id;
+        // 会话建立成功：resume 模式记下 id 供后续轮沿用；fresh 模式不保留
+        if (useResume) this.sessionId = id;
         // claude --output-format json 返回 { result: string } 或直接文本
         let text = stdout;
         try {
@@ -254,7 +267,9 @@ export class ClaudeCodeProvider implements AgentProvider {
 /**
  * Codex Agent（V8: Codex）。
  * 通过 `codex exec --json` 非交互调用。
- * 每局游戏维护一个持久会话：首轮 exec 建会话并捕获 thread_id，后续 exec resume 续接。
+ * 会话模式（sessionMode）：
+ * - 'fresh'（默认）：每轮新会话 + 完整 prompt，延迟恒定；
+ * - 'resume'：每局维护持久会话，首轮 exec 建会话并捕获 thread_id，后续 exec resume 续接。
  */
 export class CodexProvider implements AgentProvider {
   readonly kind = 'codex';
@@ -265,6 +280,7 @@ export class CodexProvider implements AgentProvider {
   private readonly retries: number;
   private readonly env: Record<string, string>;
   private readonly run: Runner;
+  private readonly sessionMode: 'fresh' | 'resume';
 
   constructor(
     private readonly profile: AgentProfile,
@@ -280,6 +296,7 @@ export class CodexProvider implements AgentProvider {
     this.retries = options.retries ?? 1;
     this.env = cliEnv('codex', options);
     this.run = options.runner ?? runCli;
+    this.sessionMode = options.sessionMode ?? 'fresh';
   }
 
   async start(): Promise<void> {
@@ -293,19 +310,22 @@ export class CodexProvider implements AgentProvider {
 
     let lastError: unknown = null;
     for (let attempt = 0; attempt <= this.retries; attempt++) {
-      const resuming = this.threadId !== null;
+      const useResume = this.sessionMode === 'resume';
+      const resuming = useResume && this.threadId !== null;
       const args = resuming
         ? ['exec', 'resume', this.threadId!, '-', '--json', ...this.extraArgs]
         : ['exec', '--json', ...this.extraArgs];
       const prompt = resuming ? turnPrompt : initialPrompt;
-      debugLog(`codex ${resuming ? `resume ${this.threadId}` : 'new session'}`);
+      debugLog(`codex ${resuming ? `resume ${this.threadId}` : 'fresh session'}`);
 
       try {
         const stdout = await this.run(this.bin, args, prompt, this.timeoutMs, this.env);
         const { threadId, message } = parseCodexJsonl(stdout);
-        // 首轮捕获 thread_id；续跑时以流里的为准
-        if (threadId) this.threadId = threadId;
-        else if (!this.threadId) throw new Error('codex 未返回 thread_id');
+        // resume 模式：首轮捕获 thread_id，续跑时以流里的为准；fresh 模式忽略
+        if (useResume) {
+          if (threadId) this.threadId = threadId;
+          else if (!this.threadId) throw new Error('codex 未返回 thread_id');
+        }
         const parsed = parseResponse(message);
         const v = validateDecision(
           { action: parsed.action, reasoning: parsed.reasoning },
@@ -350,6 +370,7 @@ export function createClaudeCodeProvider(
     apiKey: typeof opts.apiKey === 'string' ? opts.apiKey : undefined,
     baseUrl: typeof opts.baseUrl === 'string' ? opts.baseUrl : undefined,
     configDir: typeof opts.configDir === 'string' ? opts.configDir : undefined,
+    sessionMode: opts.sessionMode === 'resume' ? 'resume' : undefined,
   });
 }
 
@@ -365,5 +386,6 @@ export function createCodexProvider(
     timeoutMs: typeof opts.timeoutMs === 'number' ? opts.timeoutMs : undefined,
     extraArgs: Array.isArray(opts.extraArgs) ? (opts.extraArgs as string[]) : undefined,
     apiKey: typeof opts.apiKey === 'string' ? opts.apiKey : undefined,
+    sessionMode: opts.sessionMode === 'resume' ? 'resume' : undefined,
   });
 }

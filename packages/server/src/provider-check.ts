@@ -80,6 +80,33 @@ async function checkAnthropic(config: ProviderCheckConfig): Promise<ProviderChec
   }
 }
 
+/** 探测 OpenAI 兼容端点：GET /v1/models（Bearer 鉴权），8s 超时 */
+async function checkOpenAi(config: ProviderCheckConfig): Promise<ProviderCheckResult> {
+  if (!config.apiKey) return { ok: false, error: '未配置 API Key' };
+  const base = (config.baseUrl || 'https://api.openai.com').replace(/\/+$/, '');
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch(`${base}/v1/models`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (res.ok) {
+      return { ok: true, version: `鉴权通过（HTTP ${res.status}）` };
+    }
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, error: `API Key 无效或无权限（HTTP ${res.status}）` };
+    }
+    return { ok: false, error: `端点返回 HTTP ${res.status}` };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '连接失败' };
+  }
+}
+
 /** 检测 provider 配置是否可用 */
 export async function checkProvider(config: ProviderCheckConfig): Promise<ProviderCheckResult> {
   switch (config.kind) {
@@ -96,6 +123,8 @@ export async function checkProvider(config: ProviderCheckConfig): Promise<Provid
       });
     case 'anthropic':
       return checkAnthropic(config);
+    case 'openai':
+      return checkOpenAi(config);
     case 'http': {
       if (!config.url) return { ok: false, error: '未配置 URL' };
       try {

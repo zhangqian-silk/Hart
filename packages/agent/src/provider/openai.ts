@@ -8,14 +8,17 @@ import { parseResponse, validateDecision } from '../protocol.js';
 import { buildSystemPrompt, buildObservationPrompt } from '../prompt.js';
 import { getGame } from '@hart/common';
 
-export interface AnthropicProviderOptions {
-  /** API Key（x-api-key 头） */
+export interface OpenAiProviderOptions {
+  /** API Key（Authorization: Bearer 头） */
   apiKey: string;
-  /** API 端点，默认 https://api.anthropic.com（可指向任意 Anthropic 兼容网关） */
+  /** API 端点，默认 https://api.openai.com（可指向任意 OpenAI 兼容网关） */
   baseUrl?: string;
-  /** 模型 id，如 claude-sonnet-5 */
+  /** 模型 id，如 gpt-5；网关场景填网关侧的模型 ID */
   model: string;
-  /** 努力程度：映射为 extended thinking 预算（low/medium/high/xhigh/max）；'off' 关闭 thinking（最快） */
+  /**
+   * 努力程度：low/medium/high 映射为 reasoning_effort（o 系列/部分网关支持）；
+   * 'off' 或其他值不发送该参数。被网关拒绝时自动降级重试。
+   */
   effort?: string;
   /** 超时毫秒，默认 120s */
   timeoutMs?: number;
@@ -25,7 +28,7 @@ export interface AnthropicProviderOptions {
   retries?: number;
   /**
    * 会话模式：
-   * - 'fresh'（默认）：每轮只发当前观察，内存中不累积历史。延迟恒定、上下文不增长；
+   * - 'fresh'（默认）：每轮只发当前观察，不累积历史。延迟恒定、上下文不增长；
    *   平台 prompt 已含近 12 个事件与记忆。
    * - 'resume'：内存中保留完整对话历史，每轮重发（长局会变慢）。
    */
@@ -35,21 +38,18 @@ export interface AnthropicProviderOptions {
 }
 
 interface ChatMessage {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
   content: string;
 }
 
-/** effort → extended thinking 预算（token） */
-const THINKING_BUDGET: Record<string, number> = {
-  low: 2_048,
-  medium: 4_096,
-  high: 8_192,
-  xhigh: 16_384,
-  max: 32_768,
+/** effort → OpenAI reasoning_effort（仅这三档是合法值） */
+const REASONING_EFFORT: Record<string, 'low' | 'medium' | 'high'> = {
+  low: 'low',
+  medium: 'medium',
+  high: 'high',
 };
 
-const DEFAULT_BASE_URL = 'https://api.anthropic.com';
-const ANTHROPIC_VERSION = '2023-06-01';
+const DEFAULT_BASE_URL = 'https://api.openai.com';
 
 /** 调试日志（HART_AGENT_DEBUG=1 时输出） */
 function debugLog(msg: string): void {
@@ -59,14 +59,14 @@ function debugLog(msg: string): void {
 }
 
 /**
- * Anthropic 直连 Agent（BYOK）。
- * 直接调用 Messages API，不依赖 CLI 子进程。
- * 静态提示（规则/人格/策略/输出格式）走 system 参数并启用 prompt caching；
- * 动态观察走 user 消息。sessionMode='fresh'（默认）时不累积历史，每轮延迟恒定。
+ * OpenAI 兼容直连 Agent（BYOK）。
+ * 直接调用 Chat Completions API（POST {baseUrl}/v1/chat/completions，Bearer 鉴权），
+ * 不依赖 SDK 与 CLI 子进程。任何 OpenAI 兼容端点（官方、relay、网关）均可使用。
+ * 静态提示走 system 消息；sessionMode='fresh'（默认）时不累积历史，每轮延迟恒定。
  * 凭据（apiKey/baseUrl）按 Provider 实例隔离，天然支持多玩家各带各的 key。
  */
-export class AnthropicProvider implements AgentProvider {
-  readonly kind = 'anthropic';
+export class OpenAiProvider implements AgentProvider {
+  readonly kind = 'openai';
   private messages: ChatMessage[] = [];
   private readonly apiKey: string;
   private readonly model: string;
@@ -75,12 +75,12 @@ export class AnthropicProvider implements AgentProvider {
   private readonly maxTokens: number;
   private readonly retries: number;
   private readonly fetchImpl: typeof fetch;
-  private readonly thinkingBudget: number | null;
+  private readonly reasoningEffort: 'low' | 'medium' | 'high' | null;
   private readonly sessionMode: 'fresh' | 'resume';
 
   constructor(
     private readonly profile: AgentProfile,
-    options: AnthropicProviderOptions,
+    options: OpenAiProviderOptions,
   ) {
     this.apiKey = options.apiKey;
     this.model = options.model;
@@ -90,8 +90,8 @@ export class AnthropicProvider implements AgentProvider {
     this.retries = options.retries ?? 1;
     this.fetchImpl = options.fetchImpl ?? fetch;
     const effort = options.effort?.toLowerCase();
-    this.thinkingBudget =
-      effort && effort !== 'off' ? (THINKING_BUDGET[effort] ?? null) : null;
+    this.reasoningEffort =
+      effort && effort !== 'off' ? (REASONING_EFFORT[effort] ?? null) : null;
     this.sessionMode = options.sessionMode ?? 'fresh';
   }
 
@@ -100,45 +100,34 @@ export class AnthropicProvider implements AgentProvider {
     this.messages = [];
   }
 
-  /** system 参数：静态前缀加 ephemeral 缓存（过短的内容缓存会被 API 拒绝） */
-  private systemParam(
-    text: string,
-    withCache: boolean,
-  ): string | Array<{ type: 'text'; text: string; cache_control: { type: 'ephemeral' } }> {
-    if (!withCache || text.length < 4_000) return text;
-    return [{ type: 'text', text, cache_control: { type: 'ephemeral' } }];
-  }
-
-  /** 调用一次 Messages API，返回助手文本 */
+  /** 调用一次 Chat Completions API，返回助手文本 */
   private async callApi(
     systemText: string,
     userText: string,
-    withThinking: boolean,
-    withCache: boolean,
+    withReasoning: boolean,
   ): Promise<string> {
-    const messages = [...this.messages, { role: 'user' as const, content: userText }];
+    const messages: ChatMessage[] = [
+      { role: 'system', content: systemText },
+      ...this.messages,
+      { role: 'user', content: userText },
+    ];
     const body: Record<string, unknown> = {
       model: this.model,
-      max_tokens:
-        this.thinkingBudget && withThinking
-          ? Math.max(this.maxTokens, this.thinkingBudget + 2_048)
-          : this.maxTokens,
-      system: this.systemParam(systemText, withCache),
+      max_tokens: this.maxTokens,
       messages,
     };
-    if (this.thinkingBudget && withThinking) {
-      body.thinking = { type: 'enabled', budget_tokens: this.thinkingBudget };
+    if (this.reasoningEffort && withReasoning) {
+      body.reasoning_effort = this.reasoningEffort;
     }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     let res: Response;
     try {
-      res = await this.fetchImpl(`${this.baseUrl}/v1/messages`, {
+      res = await this.fetchImpl(`${this.baseUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          'x-api-key': this.apiKey,
-          'anthropic-version': ANTHROPIC_VERSION,
+          Authorization: `Bearer ${this.apiKey}`,
         },
         body: JSON.stringify(body),
         signal: controller.signal,
@@ -155,16 +144,16 @@ export class AnthropicProvider implements AgentProvider {
       } catch {
         // 非 JSON 错误体，用原文
       }
-      throw new Error(`Anthropic API HTTP ${res.status}: ${detail}`);
+      throw new Error(`OpenAI API HTTP ${res.status}: ${detail}`);
     }
     const data = JSON.parse(text) as {
-      content?: Array<{ type: string; text?: string }>;
+      choices?: Array<{ message?: { content?: string } }>;
     };
-    const parts = (data.content ?? [])
-      .filter((b) => b.type === 'text' && typeof b.text === 'string')
-      .map((b) => b.text as string);
-    if (parts.length === 0) throw new Error('Anthropic API 返回中没有文本块');
-    return parts.join('\n');
+    const content = data.choices?.[0]?.message?.content;
+    if (typeof content !== 'string' || content.length === 0) {
+      throw new Error('OpenAI API 返回中没有 choices[0].message.content');
+    }
+    return content;
   }
 
   async decide(ctx: AgentContext): Promise<AgentDecision> {
@@ -174,11 +163,10 @@ export class AnthropicProvider implements AgentProvider {
     const userText = buildObservationPrompt(input);
 
     let lastError: unknown = null;
-    let thinkingDisabled = false;
-    let cacheDisabled = false;
+    let reasoningDisabled = false;
     for (let attempt = 0; attempt <= this.retries; attempt++) {
       try {
-        const reply = await this.callApi(systemText, userText, !thinkingDisabled, !cacheDisabled);
+        const reply = await this.callApi(systemText, userText, !reasoningDisabled);
         // resume 模式：追加本轮问答供后续回合续接；fresh 模式不累积
         if (this.sessionMode === 'resume') {
           this.messages.push({ role: 'user', content: userText });
@@ -193,27 +181,16 @@ export class AnthropicProvider implements AgentProvider {
         return { action: v.action, reasoning: parsed.reasoning };
       } catch (e) {
         lastError = e;
-        // thinking 不被支持（如部分网关/模型）时，降级为无 thinking 重试
+        // reasoning_effort 不被支持（部分网关/模型）时，去掉该参数重试
         if (
-          this.thinkingBudget &&
-          !thinkingDisabled &&
+          this.reasoningEffort &&
+          !reasoningDisabled &&
           e instanceof Error &&
-          /thinking/i.test(e.message)
+          /reasoning/i.test(e.message)
         ) {
-          debugLog(`anthropic thinking 被拒绝，降级重试: ${e.message}`);
-          thinkingDisabled = true;
+          debugLog(`openai reasoning_effort 被拒绝，降级重试: ${e.message}`);
+          reasoningDisabled = true;
           attempt--; // 降级不算重试次数
-          continue;
-        }
-        // prompt caching 不被支持（部分第三方网关）时，去掉 cache_control 重试
-        if (
-          !cacheDisabled &&
-          e instanceof Error &&
-          /cache_control|prompt caching|ephemeral/i.test(e.message)
-        ) {
-          debugLog(`anthropic cache_control 被拒绝，降级为无缓存重试: ${e.message}`);
-          cacheDisabled = true;
-          attempt--;
           continue;
         }
         if (attempt < this.retries) {
@@ -221,7 +198,7 @@ export class AnthropicProvider implements AgentProvider {
         }
       }
     }
-    throw lastError instanceof Error ? lastError : new Error('Anthropic 决策失败');
+    throw lastError instanceof Error ? lastError : new Error('OpenAI 决策失败');
   }
 
   async stop(): Promise<void> {
@@ -229,18 +206,18 @@ export class AnthropicProvider implements AgentProvider {
   }
 }
 
-export function createAnthropicProvider(
+export function createOpenAiProvider(
   profile: AgentProfile,
   options?: Record<string, unknown>,
 ): AgentProvider {
   const opts = options ?? {};
   if (typeof opts.apiKey !== 'string' || !opts.apiKey) {
-    throw new Error('AnthropicProvider 需要 apiKey 参数');
+    throw new Error('OpenAiProvider 需要 apiKey 参数');
   }
   if (typeof opts.model !== 'string' || !opts.model) {
-    throw new Error('AnthropicProvider 需要 model 参数');
+    throw new Error('OpenAiProvider 需要 model 参数');
   }
-  return new AnthropicProvider(profile, {
+  return new OpenAiProvider(profile, {
     apiKey: opts.apiKey,
     model: opts.model,
     baseUrl: typeof opts.baseUrl === 'string' ? opts.baseUrl : undefined,

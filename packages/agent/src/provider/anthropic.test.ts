@@ -61,16 +61,62 @@ describe('AnthropicProvider', () => {
     expect(body.model).toBe('claude-sonnet-5');
     expect(body.messages).toHaveLength(1);
     expect(body.messages[0]!.role).toBe('user');
-    expect(body.messages[0]!.content).toContain('AI 玩家');
+    // 静态身份/规则走 system 参数（可缓存），动态观察走 user 消息
+    expect(JSON.stringify(body.system)).toContain('AI 玩家');
+    expect(JSON.stringify(body.system)).toContain('Game Rules');
+    expect(body.messages[0]!.content).toContain('Observation');
   });
 
-  it('会话续接：第二轮携带首轮问答历史', async () => {
+  it('fresh 模式（默认）：多轮决策不累积历史，每轮只有当前观察', async () => {
     const { fetchImpl, calls } = mockFetch({
       body: { content: [{ type: 'text', text: OK_REPLY }] },
     });
     const provider = new AnthropicProvider(profile, {
       apiKey: 'sk-test',
       model: 'claude-sonnet-5',
+      fetchImpl,
+    });
+    await provider.start();
+    await provider.decide(makeContext());
+    await provider.decide(makeContext([{ t: 'pass' }, { t: 'resign' }]));
+
+    expect(calls).toHaveLength(2);
+    for (const c of calls) {
+      const body = JSON.parse(c.init.body as string);
+      expect(body.messages).toHaveLength(1);
+      expect(body.messages[0]!.role).toBe('user');
+    }
+  });
+
+  it('system 文本较长时启用 ephemeral prompt caching', async () => {
+    const { fetchImpl, calls } = mockFetch({
+      body: { content: [{ type: 'text', text: OK_REPLY }] },
+    });
+    const longProfile = {
+      ...profile,
+      systemPrompt: '你是桌游平台上的 AI 玩家。' + '规则说明。'.repeat(1000),
+    };
+    const provider = new AnthropicProvider(longProfile, {
+      apiKey: 'sk-test',
+      model: 'claude-sonnet-5',
+      fetchImpl,
+    });
+    await provider.start();
+    await provider.decide(makeContext());
+
+    const body = JSON.parse(calls[0]!.init.body as string);
+    expect(Array.isArray(body.system)).toBe(true);
+    expect(body.system[0]!.cache_control).toEqual({ type: 'ephemeral' });
+  });
+
+  it('会话续接（sessionMode=resume）：第二轮携带首轮问答历史', async () => {
+    const { fetchImpl, calls } = mockFetch({
+      body: { content: [{ type: 'text', text: OK_REPLY }] },
+    });
+    const provider = new AnthropicProvider(profile, {
+      apiKey: 'sk-test',
+      model: 'claude-sonnet-5',
+      sessionMode: 'resume',
       fetchImpl,
     });
     await provider.start();
@@ -117,6 +163,61 @@ describe('AnthropicProvider', () => {
     expect(first.thinking).toEqual({ type: 'enabled', budget_tokens: 8192 });
     const second = JSON.parse((fetchImpl.mock.calls[1]![1] as RequestInit).body as string);
     expect(second.thinking).toBeUndefined();
+  });
+
+  it("effort='off' 时不启用 thinking（最快档）", async () => {
+    const { fetchImpl, calls } = mockFetch({
+      body: { content: [{ type: 'text', text: OK_REPLY }] },
+    });
+    const provider = new AnthropicProvider(profile, {
+      apiKey: 'sk-test',
+      model: 'claude-sonnet-5',
+      effort: 'off',
+      fetchImpl,
+    });
+    await provider.start();
+    await provider.decide(makeContext());
+
+    const body = JSON.parse(calls[0]!.init.body as string);
+    expect(body.thinking).toBeUndefined();
+    expect(body.max_tokens).toBe(4096);
+  });
+
+  it('网关拒绝 cache_control 时降级为无缓存重试', async () => {
+    const longProfile = {
+      ...profile,
+      systemPrompt: '你是桌游平台上的 AI 玩家。' + '规则说明。'.repeat(1000),
+    };
+    let n = 0;
+    const fetchImpl = vi.fn(
+      async (_url: string | URL | Request, _init?: RequestInit) => {
+        n++;
+        if (n === 1) {
+          return new Response(
+            JSON.stringify({ error: { message: 'prompt caching is not supported' } }),
+            { status: 400, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        return new Response(
+          JSON.stringify({ content: [{ type: 'text', text: OK_REPLY }] }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      },
+    );
+    const provider = new AnthropicProvider(longProfile, {
+      apiKey: 'sk-test',
+      model: 'claude-sonnet-5',
+      retries: 0,
+      fetchImpl,
+    });
+    await provider.start();
+    const decision = await provider.decide(makeContext());
+    expect(decision.action).toEqual({ t: 'pass' });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const first = JSON.parse((fetchImpl.mock.calls[0]![1] as RequestInit).body as string);
+    expect(Array.isArray(first.system)).toBe(true);
+    const second = JSON.parse((fetchImpl.mock.calls[1]![1] as RequestInit).body as string);
+    expect(typeof second.system).toBe('string');
   });
 
   it('API 错误时抛出含详情的异常', async () => {
